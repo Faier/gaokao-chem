@@ -181,3 +181,24 @@ def get_filter_options():
     ).fetchall()]
     conn.close()
     return {'years': years, 'provinces': provinces, 'q_types': q_types}
+
+
+def update_paper_file(paper_id, file_path, file_size=None, page_count=None):
+    conn = get_db()
+    conn.execute("""
+        UPDATE papers SET file_path=?, file_size=?, page_count=?
+        WHERE id=?
+    """, (file_path, file_size, page_count, paper_id))
+    conn.commit()
+    conn.close()
+
+
+def paper_exists(year, province, paper_type):
+    """Check if a paper is already in the database."""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT id FROM papers WHERE year=? AND province=? AND paper_type=?",
+        (year, province, paper_type)
+    ).fetchone()
+    conn.close()
+    return bool(row)
