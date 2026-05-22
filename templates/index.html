@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>高考化学题库</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>高考化学真题查询</h1>
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="输入关键词搜索题目，如：氧化还原反应、电化学、有机合成..."
+             autocomplete="off">
+      <button id="search-btn" onclick="doSearch()">搜索</button>
+      <button id="semantic-btn" onclick="doSemanticSearch()" title="语义搜索（实验性）">语义</button>
+    </div>
+    <div class="filters">
+      <select id="filter-year" onchange="doSearch()">
+        <option value="">全部年份</option>
+      </select>
+      <select id="filter-province" onchange="doSearch()">
+        <option value="">全部省份</option>
+      </select>
+      <select id="filter-type" onchange="doSearch()">
+        <option value="">全部题型</option>
+      </select>
+    </div>
+  </header>
+
+  <div class="stats-bar" id="stats-bar"></div>
+
+  <main id="results-container">
+    <div class="empty-state">
+      <p>输入关键词开始搜索高考化学真题</p>
+      <p class="hint">支持搜索题干、答案、解析和知识点标签</p>
+    </div>
+  </main>
+
+  <div id="pagination" class="pagination"></div>
+</div>
+
+<div id="detail-modal" class="modal" style="display:none">
+  <div class="modal-content">
+    <span class="modal-close" onclick="closeModal()">&times;</span>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+let currentPage = 1;
+let currentQuery = '';
+
+// Initialize filters on load
+fetch('/api/stats')
+  .then(r => r.json())
+  .then(data => {
+    populateSelect('filter-year', data.years || []);
+    populateSelect('filter-province', data.provinces || []);
+    populateSelect('filter-type', data.q_types || []);
+    document.getElementById('stats-bar').textContent =
+      `共收录 ${data.total_questions || 0} 道题目，${data.total_papers || 0} 套试卷`;
+  });
+
+document.getElementById('search-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') doSearch();
+});
+
+function populateSelect(id, options) {
+  const sel = document.getElementById(id);
+  options.forEach(v => {
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  });
+}
+
+function getFilters() {
+  const year = document.getElementById('filter-year').value;
+  const province = document.getElementById('filter-province').value;
+  const qType = document.getElementById('filter-type').value;
+  let params = '';
+  if (year) params += '&year=' + encodeURIComponent(year);
+  if (province) params += '&province=' + encodeURIComponent(province);
+  if (qType) params += '&q_type=' + encodeURIComponent(qType);
+  return params;
+}
+
+function doSearch() {
+  currentQuery = document.getElementById('search-input').value.trim();
+  if (!currentQuery) return;
+  currentPage = 1;
+  executeSearch();
+}
+
+function doSemanticSearch() {
+  currentQuery = document.getElementById('search-input').value.trim();
+  if (!currentQuery) return;
+  const params = getFilters();
+  fetch('/api/search/semantic?q=' + encodeURIComponent(currentQuery) + '&top_k=20' + params)
+    .then(r => r.json())
+    .then(data => renderResults(data, true));
+}
+
+function executeSearch() {
+  const params = getFilters();
+  fetch('/api/search?q=' + encodeURIComponent(currentQuery)
+    + '&page=' + currentPage + '&size=20' + params)
+    .then(r => r.json())
+    .then(data => renderResults(data, false));
+}
+
+function renderResults(data, isSemantic) {
+  const container = document.getElementById('results-container');
+  const pagination = document.getElementById('pagination');
+
+  if (!data.questions || data.questions.length === 0) {
+    container.innerHTML = '<div class="empty-state"><p>未找到匹配的题目，试试其他关键词</p></div>';
+    pagination.innerHTML = '';
+    return;
+  }
+
+  let html = '<div class="result-count">共 ' + data.total + ' 条结果</div>';
+  data.questions.forEach((q, i) => {
+    let label = isSemantic && data.scores ? '相关度: ' + (data.scores[i] || 0).toFixed(2) : '';
+    html += renderQuestionCard(q, label);
+  });
+  container.innerHTML = html;
+
+  // Pagination
+  const totalPages = Math.ceil(data.total / data.size);
+  if (totalPages > 1) {
+    let ph = '';
+    for (let p = 1; p <= totalPages; p++) {
+      if (p === currentPage) {
+        ph += '<span class="page-btn active">' + p + '</span>';
+      } else {
+        ph += '<span class="page-btn" onclick="goPage(' + p + ')">' + p + '</span>';
+      }
+    }
+    pagination.innerHTML = ph;
+  } else {
+    pagination.innerHTML = '';
+  }
+}
+
+function renderQuestionCard(q, label) {
+  let badge = '';
+  if (q.year) badge += '<span class="badge badge-year">' + q.year + '</span>';
+  if (q.province) badge += '<span class="badge badge-province">' + q.province + '</span>';
+  if (q.paper_type) badge += '<span class="badge badge-type">' + q.paper_type + '</span>';
+  if (q.q_type) badge += '<span class="badge badge-qtype">' + q.q_type + '</span>';
+  if (label) badge += '<span class="badge badge-score">' + label + '</span>';
+
+  let topicsHtml = '';
+  if (q.topics) {
+    q.topics.split(/\s+/).filter(Boolean).forEach(t => {
+      topicsHtml += '<span class="topic-tag" onclick="event.stopPropagation(); document.getElementById(\'search-input\').value=\'' + t.replace(/'/g, "\\'") + '\'; doSearch();">' + t + '</span>';
+    });
+  }
+
+  let stemPreview = escapeHtml(q.stem || '');
+  if (stemPreview.length > 200) stemPreview = stemPreview.substring(0, 200) + '...';
+
+  return `
+    <div class="question-card" onclick="showDetail('${q.id}')">
+      <div class="card-header">
+        <span class="question-num">第${q.question_num}题</span>
+        <div class="badges">${badge}</div>
+      </div>
+      <div class="card-stem">${stemPreview}</div>
+      ${topicsHtml ? '<div class="card-topics">' + topicsHtml + '</div>' : ''}
+      <div class="card-answer" onclick="event.stopPropagation()">
+        <span class="answer-toggle" onclick="toggleAnswer(this)">▼ 查看答案</span>
+        <span class="answer-text" style="display:none">${escapeHtml(q.answer || '')}</span>
+      </div>
+    </div>`;
+}
+
+function toggleAnswer(el) {
+  const textEl = el.nextElementSibling;
+  if (textEl.style.display === 'none') {
+    textEl.style.display = 'inline';
+    el.textContent = '▲ 隐藏答案';
+  } else {
+    textEl.style.display = 'none';
+    el.textContent = '▼ 查看答案';
+  }
+}
+
+function goPage(p) {
+  currentPage = p;
+  executeSearch();
+  window.scrollTo(0, 0);
+}
+
+function showDetail(qId) {
+  fetch('/api/question/' + qId)
+    .then(r => r.json())
+    .then(q => {
+      let html = '<h2>第' + q.question_num + '题 <small>' + (q.q_type || '') + '</small></h2>';
+      html += '<div class="detail-meta">' + q.year + '年 ' + q.province + ' ' + q.paper_type + '</div>';
+      html += '<div class="detail-stem">' + escapeHtml(q.stem || '') + '</div>';
+      if (q.options && q.options.length > 0) {
+        html += '<div class="detail-options"><ul>';
+        q.options.forEach(o => {
+          for (let [k, v] of Object.entries(o)) {
+            html += '<li><strong>' + k + '.</strong> ' + escapeHtml(v) + '</li>';
+          }
+        });
+        html += '</ul></div>';
+      }
+      html += '<div class="detail-section"><h3>答案</h3><p>' + escapeHtml(q.answer || '') + '</p></div>';
+      if (q.explanation) {
+        html += '<div class="detail-section"><h3>解析</h3><p>' + escapeHtml(q.explanation) + '</p></div>';
+      }
+      if (q.topics) {
+        html += '<div class="detail-section"><h3>知识点</h3><p>' + escapeHtml(q.topics) + '</p></div>';
+      }
+      if (q.paper && q.paper.file_path) {
+        html += '<div class="detail-section"><a href="/api/paper/' + q.paper_id + '" target="_blank">查看完整试卷</a></div>';
+      }
+      document.getElementById('modal-body').innerHTML = html;
+      document.getElementById('detail-modal').style.display = 'flex';
+    });
+}
+
+function closeModal() {
+  document.getElementById('detail-modal').style.display = 'none';
+}
+
+document.getElementById('detail-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>
