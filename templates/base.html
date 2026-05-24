@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}高考化学题库{% endblock %}</title>
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<nav class="top-nav">
+  <div class="nav-left">
+    <a href="/" class="nav-logo">高考化学题库</a>
+  </div>
+  <div class="nav-right">
+    {% if current_user.is_authenticated %}
+      <span class="nav-user">{{ current_user.username }}</span>
+      {% if current_user.is_admin %}
+        <span class="nav-badge admin">管理员</span>
+        <a href="/admin" class="nav-link">后台</a>
+      {% elif current_user.has_vip() %}
+        <span class="nav-badge vip">VIP {{ current_user.vip_expire_at[:10] if current_user.vip_expire_at else '' }}</span>
+      {% else %}
+        <span class="nav-badge trial">试用 {{ current_user.trial_remaining_hours() }}h</span>
+        <a href="/api/vip/page" class="nav-link">充值</a>
+      {% endif %}
+      <a href="/auth/logout" class="nav-link">退出</a>
+    {% else %}
+      <a href="/auth/login" class="nav-link">登录</a>
+      <a href="/auth/register" class="nav-link">注册</a>
+    {% endif %}
+  </div>
+</nav>
+<main>
+{% block content %}{% endblock %}
+</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

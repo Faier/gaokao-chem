@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}注册{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block content %}
+<div class="auth-container">
+  <h2>注册</h2>
+  {% with messages = get_flashed_messages(category_filter=['error']) %}
+  {% if messages %}<div class="flash-error">{{ messages[0] }}</div>{% endif %}
+  {% endwith %}
+  <form method="post">
+    <label>用户名</label>
+    <input type="text" name="username" required autocomplete="username">
+    <label>密码（至少 6 位）</label>
+    <input type="password" name="password" required autocomplete="new-password">
+    <label>确认密码</label>
+    <input type="password" name="confirm" required autocomplete="new-password">
+    <button type="submit">注册</button>
+  </form>
+  <p class="auth-switch">已有账号？<a href="{{ url_for('auth.login') }}">去登录</a></p>
+</div>
+{% endblock %}
