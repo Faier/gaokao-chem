@@ -88,6 +88,23 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_q_type ON questions(q_type);
         CREATE INDEX IF NOT EXISTS idx_p_year ON papers(year);
         CREATE INDEX IF NOT EXISTS idx_p_province ON papers(province);
+
+        CREATE TRIGGER IF NOT EXISTS questions_ai AFTER INSERT ON questions BEGIN
+            INSERT INTO questions_fts(rowid, stem, answer, explanation, topics)
+            VALUES (new.rowid, new.stem, new.answer, new.explanation, new.topics);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS questions_ad AFTER DELETE ON questions BEGIN
+            INSERT INTO questions_fts(questions_fts, rowid, stem, answer, explanation, topics)
+            VALUES ('delete', old.rowid, old.stem, old.answer, old.explanation, old.topics);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS questions_au AFTER UPDATE ON questions BEGIN
+            INSERT INTO questions_fts(questions_fts, rowid, stem, answer, explanation, topics)
+            VALUES ('delete', old.rowid, old.stem, old.answer, old.explanation, old.topics);
+            INSERT INTO questions_fts(rowid, stem, answer, explanation, topics)
+            VALUES (new.rowid, new.stem, new.answer, new.explanation, new.topics);
+        END;
     """)
     conn.commit()
     conn.close()
