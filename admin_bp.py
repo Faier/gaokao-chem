@@ -15,6 +15,64 @@ from config import UPLOAD_DIR
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 
+def parse_filename(name):
+    """Extract year, province, paper_type, title from filename.
+
+    Examples:
+      2024年全国卷理综化学.pdf → year=2024, province=全国卷, type=理综, title=2024年高考全国卷理综化学
+      2023北京化学高考真题.pdf → year=2023, province=北京, type=化学
+      2022年上海卷化学.pdf       → year=2022, province=上海, type=化学
+    """
+    import re
+
+    # Strip extension
+    base = name.rsplit('.', 1)[0].strip()
+
+    year = ''
+    province = ''
+    paper_type = ''
+
+    # Extract year: 4-digit starting with 19/20
+    m = re.search(r'(20\d{2})', base)
+    if m:
+        year = m.group(1)
+
+    # Extract province
+    province_map = [
+        '全国卷', '全国', '新课标', '北京', '上海', '天津', '重庆',
+        '浙江', '江苏', '广东', '山东', '湖北', '湖南', '河北',
+        '河南', '四川', '福建', '安徽', '江西', '辽宁', '陕西',
+        '山西', '吉林', '黑龙江', '广西', '云南', '贵州', '甘肃',
+        '内蒙古', '新疆', '西藏', '海南', '宁夏', '青海',
+    ]
+    for p in sorted(province_map, key=len, reverse=True):
+        if p in base:
+            province = p
+            if province == '全国':
+                province = '全国卷'
+            break
+
+    # Extract paper type
+    type_map = ['理综', '文综', '化学', '物理', '生物', '新高考']
+    for t in type_map:
+        if t in base:
+            paper_type = t
+            break
+
+    if not paper_type:
+        paper_type = '化学'
+
+    # Build title
+    title = f'{year}年高考{province}{paper_type}' if year and province else base
+
+    return {
+        'year': year,
+        'province': province,
+        'paper_type': paper_type,
+        'title': title,
+    }
+
+
 def admin_required(f):
     @wraps(f)
     @login_required
@@ -54,39 +112,47 @@ def upload_page():
 @admin_bp.route('/upload/analyze', methods=['POST'])
 @admin_required
 def upload_analyze():
-    """Step 1: Upload PDF, extract text, auto-detect metadata via AI."""
+    """Step 1: Upload PDF, parse filename, AI fallback for metadata."""
     file = request.files.get('pdf')
     if not file:
         return jsonify({'ok': False, 'msg': '请选择 PDF 文件'}), 400
 
-    # Save temp file
     filename = file.filename or 'upload.pdf'
     filepath = os.path.join(UPLOAD_DIR, filename)
     file.save(filepath)
 
-    # Extract text from first few pages
-    text = extract_text_from_pdf(filepath)
-    if not text:
-        os.remove(filepath)
-        return jsonify({'ok': False, 'msg': 'PDF 文字提取失败，文件可能为扫描件'}), 400
+    # 1. Try filename parsing first
+    meta = parse_filename(filename)
 
-    # Use AI to detect metadata (send first 3000 chars)
-    meta = {'year': '', 'province': '', 'paper_type': '', 'title': ''}
-    result = call_deepseek(METADATA_PROMPT, text[:3000])
-    if result and 'year' in result:
-        meta = {
-            'year': str(result.get('year', '')),
-            'province': str(result.get('province', '')),
-            'paper_type': str(result.get('paper_type', '')),
-            'title': str(result.get('title', '')),
-        }
+    # 2. If filename didn't give good results, try AI
+    if not meta['year'] or not meta['province']:
+        text = extract_text_from_pdf(filepath)
+        if text:
+            result = call_deepseek(METADATA_PROMPT, text[:3000])
+            if result and 'year' in result:
+                meta['year'] = meta['year'] or str(result.get('year', ''))
+                meta['province'] = meta['province'] or str(result.get('province', ''))
+                meta['paper_type'] = meta['paper_type'] or str(result.get('paper_type', ''))
+                meta['title'] = str(result.get('title', meta['title']))
+            text_preview = text[:500]
+        else:
+            text_preview = ''
+    else:
+        # Filename parsed successfully — still extract text for preview
+        text = extract_text_from_pdf(filepath)
+        text_preview = text[:500] if text else '（文字提取失败，但文件名已识别）'
+
+    if not meta['year']:
+        os.remove(filepath)
+        return jsonify({'ok': False, 'msg': '无法从文件名或内容中识别年份，请确保文件名包含年份（如2024）'}), 400
 
     return jsonify({
         'ok': True,
         'filename': filename,
         'filepath': filepath,
-        'text_preview': text[:500],
+        'text_preview': text_preview,
         'meta': meta,
+        'source': 'filename' if meta['province'] else 'ai',
     })
 
 

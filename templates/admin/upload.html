@@ -22,7 +22,7 @@
 
     <!-- Step 2: Review metadata and confirm (hidden initially) -->
     <div id="step2" style="display:none">
-      <h3 style="color:#7ecfff;margin-bottom:8px;">确认试卷信息</h3>
+      <h3 style="color:#7ecfff;margin-bottom:4px;">确认试卷信息 <span id="meta-source" style="font-size:12px;color:#888;"></span></h3>
       <div id="text-preview" class="flash-ok" style="max-height:120px;overflow-y:auto;font-size:12px;margin-bottom:12px;"></div>
       <form id="confirm-form">
         <label>年份</label>
@@ -74,6 +74,8 @@ function analyzePDF() {
         document.getElementById('meta-filepath').value = d.filepath;
         document.getElementById('meta-filename').value = d.filename;
         document.getElementById('text-preview').textContent = '文字预览: ' + (d.text_preview || '').substring(0, 500);
+        var sourceTag = d.source === 'filename' ? '（从文件名识别）' : '（AI 识别）';
+        document.getElementById('meta-source').textContent = sourceTag;
         document.getElementById('step1').style.display = 'none';
         document.getElementById('step2').style.display = 'block';
         status.innerHTML = '';
