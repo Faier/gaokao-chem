@@ -162,6 +162,29 @@ def review(paper_id):
     return render_template('admin/review.html', paper=paper, questions=questions, error=error)
 
 
+@admin_bp.route('/review/<paper_id>/reparse', methods=['POST'])
+@admin_required
+def review_reparse(paper_id):
+    """Force re-parse paper questions (discards existing parse result)."""
+    paper = get_paper(paper_id)
+    if not paper:
+        return jsonify({'error': 'not found'}), 404
+
+    result = parse_pdf_to_questions(paper['file_path'])
+    if 'error' in result:
+        return jsonify({'ok': False, 'msg': result['error']}), 500
+
+    questions = result.get('questions', [])
+    conn = get_db()
+    conn.execute(
+        "UPDATE papers SET parse_result=? WHERE id=?",
+        (json.dumps(questions, ensure_ascii=False), paper_id)
+    )
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'msg': f'重新解析完成，{len(questions)} 道题目'})
+
+
 @admin_bp.route('/review/<paper_id>/confirm', methods=['POST'])
 @admin_required
 def review_confirm(paper_id):

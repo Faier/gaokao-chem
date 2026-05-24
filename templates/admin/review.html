@@ -15,21 +15,39 @@
       <div class="flash-error">{{ error }}</div>
       <a href="/admin/upload">重新上传</a>
     {% else %}
-      <p>AI 解析出 {{ questions|length }} 道题目，请审核后确认入库</p>
+      {% set missing = namespace(count=0) %}
+      {% for q in questions %}
+        {% if not q.answer or not q.explanation or (q.explanation or '')|length < 10 %}
+          {% set missing.count = missing.count + 1 %}
+        {% endif %}
+      {% endfor %}
+      <p>AI 解析出 {{ questions|length }} 道题目
+        {% if missing.count > 0 %}
+          <span style="color:#f48771;">（{{ missing.count }} 道缺答案或解析，请重点补充）</span>
+        {% endif %}
+      </p>
       <div id="questions-editor">
         {% for q in questions %}
         <div class="edit-card" data-index="{{ loop.index0 }}">
-          <h3>第 {{ q.question_num }} 题 — {{ q.q_type }}</h3>
+          <h3>
+            第 {{ q.question_num }} 题 — {{ q.q_type }}
+            {% if not q.answer %}
+              <span style="color:#f48771;font-size:12px;">⚠ 缺答案</span>
+            {% endif %}
+            {% if not q.explanation or (q.explanation or '')|length < 10 %}
+              <span style="color:#f4a371;font-size:12px;">⚠ 缺解析</span>
+            {% endif %}
+          </h3>
           <label>题型</label>
           <input type="text" name="q_type" value="{{ q.q_type }}">
           <label>题干</label>
           <textarea name="stem" rows="4">{{ q.stem }}</textarea>
           <label>选项 (JSON)</label>
           <textarea name="options" rows="2">{{ q.options | tojson }}</textarea>
-          <label>答案</label>
-          <input type="text" name="answer" value="{{ q.answer }}">
-          <label>解析</label>
-          <textarea name="explanation" rows="3">{{ q.explanation or '' }}</textarea>
+          <label>答案 {% if not q.answer %}<span style="color:#f48771;">（必填）</span>{% endif %}</label>
+          <input type="text" name="answer" value="{{ q.answer or '' }}" style="{% if not q.answer %}border-color:#f48771;{% endif %}">
+          <label>解析 {% if not q.explanation or (q.explanation or '')|length < 10 %}<span style="color:#f4a371;">（需补充）</span>{% endif %}</label>
+          <textarea name="explanation" rows="3" style="{% if not q.explanation or (q.explanation or '')|length < 10 %}border-color:#f4a371;{% endif %}">{{ q.explanation or '' }}</textarea>
           <label>知识点（空格分隔）</label>
           <input type="text" name="topics" value="{{ q.topics or '' }}">
           <input type="hidden" name="question_num" value="{{ q.question_num }}">
@@ -37,6 +55,7 @@
         {% endfor %}
       </div>
       <button id="confirm-btn" onclick="confirmQuestions('{{ paper.id }}')">确认入库</button>
+      <button id="reparse-btn" class="danger" onclick="reparseQuestions('{{ paper.id }}')">重新 AI 解析</button>
       <button id="delete-btn" class="danger" onclick="deletePaper('{{ paper.id }}')">删除此试卷</button>
       <div id="confirm-result"></div>
     {% endif %}
@@ -45,6 +64,7 @@
 <script>
 function confirmQuestions(paperId) {
   var questions = [];
+  var missing = [];
   document.querySelectorAll('.edit-card').forEach(function(card) {
     var q = {};
     card.querySelectorAll('input, textarea').forEach(function(el) {
@@ -57,8 +77,18 @@ function confirmQuestions(paperId) {
         q[name] = el.value;
       }
     });
+    if (!q.answer || q.answer.trim() === '') {
+      missing.push(q.question_num);
+    }
     questions.push(q);
   });
+
+  if (missing.length > 0) {
+    if (!confirm('以下题目缺少答案: 第' + missing.join(',') + '题。确定继续入库？')) {
+      return;
+    }
+  }
+
   var btn = document.getElementById('confirm-btn');
   btn.disabled = true;
   btn.textContent = '入库中...';
@@ -73,8 +103,24 @@ function confirmQuestions(paperId) {
     el.textContent = d.msg;
     el.style.color = d.ok ? '#4caf50' : '#f44336';
     if (d.ok) { setTimeout(function() { location.href = '/admin/papers'; }, 2000); }
+    btn.disabled = false;
+    btn.textContent = '确认入库';
   });
 }
+
+function reparseQuestions(paperId) {
+  if (!confirm('重新解析会丢失当前编辑的修改，确定重新解析？')) return;
+  var btn = document.getElementById('reparse-btn');
+  btn.disabled = true;
+  btn.textContent = '解析中...';
+  fetch('/admin/review/' + paperId + '/reparse', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { location.reload(); }
+      else { alert(d.msg); btn.disabled = false; btn.textContent = '重新 AI 解析'; }
+    });
+}
+
 function deletePaper(paperId) {
   if (!confirm('确定删除？')) return;
   fetch('/admin/review/' + paperId + '/delete', { method: 'POST' })
