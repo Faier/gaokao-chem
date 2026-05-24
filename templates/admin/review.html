@@ -62,7 +62,7 @@ function confirmQuestions(paperId) {
   var btn = document.getElementById('confirm-btn');
   btn.disabled = true;
   btn.textContent = '入库中...';
-  fetch('/admin/parse/' + paperId + '/confirm', {
+  fetch('/admin/review/' + paperId + '/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ questions: questions })
@@ -77,7 +77,7 @@ function confirmQuestions(paperId) {
 }
 function deletePaper(paperId) {
   if (!confirm('确定删除？')) return;
-  fetch('/admin/parse/' + paperId + '/delete', { method: 'POST' })
+  fetch('/admin/review/' + paperId + '/delete', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok) { location.href = '/admin/papers'; }

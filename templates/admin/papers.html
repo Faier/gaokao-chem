@@ -22,7 +22,7 @@
         <td>{{ p.paper_type }}</td>
         <td>{% if p.status == 'confirmed' %}<span class="badge-ok">已入库</span>{% else %}<span class="badge-used">待审核</span>{% endif %}</td>
         <td>
-          {% if p.status != 'confirmed' %}<a href="/admin/parse/{{ p.id }}">审核</a>{% else %}已入库{% endif %}
+          {% if p.status != 'confirmed' %}<a href="/admin/review/{{ p.id }}">审核</a>{% else %}已入库{% endif %}
         </td>
       </tr>
       {% endfor %}

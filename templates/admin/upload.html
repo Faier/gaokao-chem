@@ -11,40 +11,106 @@
   </aside>
   <div class="admin-content">
     <h2>上传试卷 PDF</h2>
-    <form id="upload-form" enctype="multipart/form-data">
-      <label>年份</label>
-      <input type="number" name="year" required placeholder="如 2024">
-      <label>省份</label>
-      <input type="text" name="province" required placeholder="如 全国卷">
-      <label>试卷类型</label>
-      <input type="text" name="paper_type" required placeholder="如 理综">
-      <label>试卷标题</label>
-      <input type="text" name="title" required placeholder="如 2024年高考全国卷理综化学">
+
+    <!-- Step 1: Select file, auto-detect metadata -->
+    <div id="step1">
       <label>PDF 文件</label>
-      <input type="file" name="pdf" accept=".pdf" required>
-      <button type="submit">上传并解析</button>
-    </form>
-    <div id="upload-result"></div>
+      <input type="file" id="pdf-file" accept=".pdf">
+      <button id="analyze-btn" onclick="analyzePDF()">自动识别信息</button>
+      <div id="analyze-status"></div>
+    </div>
+
+    <!-- Step 2: Review metadata and confirm (hidden initially) -->
+    <div id="step2" style="display:none">
+      <h3 style="color:#7ecfff;margin-bottom:8px;">确认试卷信息</h3>
+      <div id="text-preview" class="flash-ok" style="max-height:120px;overflow-y:auto;font-size:12px;margin-bottom:12px;"></div>
+      <form id="confirm-form">
+        <label>年份</label>
+        <input type="number" id="meta-year" required>
+        <label>省份</label>
+        <input type="text" id="meta-province" required>
+        <label>试卷类型</label>
+        <input type="text" id="meta-paper-type" required>
+        <label>试卷标题</label>
+        <input type="text" id="meta-title" required>
+        <input type="hidden" id="meta-filepath">
+        <input type="hidden" id="meta-filename">
+        <button type="submit">确认上传并解析题目</button>
+      </form>
+      <div id="confirm-result"></div>
+    </div>
   </div>
 </div>
+
 <script>
-document.getElementById('upload-form').addEventListener('submit', function(e) {
-  e.preventDefault();
-  var fd = new FormData(this);
-  var btn = this.querySelector('button');
-  btn.textContent = '上传中...';
+var filepath = '';
+var filename = '';
+
+function analyzePDF() {
+  var file = document.getElementById('pdf-file').files[0];
+  if (!file) { alert('请先选择 PDF 文件'); return; }
+
+  var btn = document.getElementById('analyze-btn');
+  var status = document.getElementById('analyze-status');
+  btn.textContent = '解析中...';
   btn.disabled = true;
-  fetch('/admin/upload', { method: 'POST', body: fd })
+  status.innerHTML = '<div class="flash-ok">正在提取文字并识别试卷信息...</div>';
+
+  var fd = new FormData();
+  fd.append('pdf', file);
+
+  fetch('/admin/upload/analyze', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      var el = document.getElementById('upload-result');
+      btn.textContent = '自动识别信息';
+      btn.disabled = false;
       if (d.ok) {
-        el.innerHTML = '<div class="flash-ok">' + d.msg + ' <a href="/admin/parse/' + d.paper_id + '">去审核</a></div>';
+        filepath = d.filepath;
+        filename = d.filename;
+        document.getElementById('meta-year').value = d.meta.year || '';
+        document.getElementById('meta-province').value = d.meta.province || '';
+        document.getElementById('meta-paper-type').value = d.meta.paper_type || '';
+        document.getElementById('meta-title').value = d.meta.title || '';
+        document.getElementById('meta-filepath').value = d.filepath;
+        document.getElementById('meta-filename').value = d.filename;
+        document.getElementById('text-preview').textContent = '文字预览: ' + (d.text_preview || '').substring(0, 500);
+        document.getElementById('step1').style.display = 'none';
+        document.getElementById('step2').style.display = 'block';
+        status.innerHTML = '';
+      } else {
+        status.innerHTML = '<div class="flash-error">' + d.msg + '</div>';
+      }
+    });
+}
+
+document.getElementById('confirm-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData();
+  fd.append('year', document.getElementById('meta-year').value);
+  fd.append('province', document.getElementById('meta-province').value);
+  fd.append('paper_type', document.getElementById('meta-paper-type').value);
+  fd.append('title', document.getElementById('meta-title').value);
+  fd.append('filepath', document.getElementById('meta-filepath').value);
+
+  var btn = this.querySelector('button');
+  btn.textContent = '上传并解析中...';
+  btn.disabled = true;
+
+  fetch('/admin/upload/confirm', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('confirm-result');
+      if (d.ok) {
+        el.innerHTML = '<div class="flash-ok">' + d.msg + '</div>';
+        // Redirect to review page after a short delay
+        setTimeout(function() {
+          location.href = '/admin/review/' + d.paper_id;
+        }, 2000);
       } else {
         el.innerHTML = '<div class="flash-error">' + d.msg + '</div>';
+        btn.textContent = '确认上传并解析题目';
+        btn.disabled = false;
       }
-      btn.textContent = '上传并解析';
-      btn.disabled = false;
     });
 });
 </script>

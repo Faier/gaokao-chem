@@ -111,6 +111,11 @@ def init_db():
         conn.execute("ALTER TABLE papers ADD COLUMN status TEXT DEFAULT 'pending'")
     except sqlite3.OperationalError:
         pass
+    # Migration: add parse_result column for storing AI parse results
+    try:
+        conn.execute("ALTER TABLE papers ADD COLUMN parse_result TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
