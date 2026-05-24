@@ -106,6 +106,11 @@ def init_db():
             VALUES (new.rowid, new.stem, new.answer, new.explanation, new.topics);
         END;
     """)
+    # Migration: add status column if missing (for DBs created before commercial redesign)
+    try:
+        conn.execute("ALTER TABLE papers ADD COLUMN status TEXT DEFAULT 'pending'")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
