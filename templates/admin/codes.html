@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}激活码管理{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <h3>管理后台</h3>
+    <a href="/admin">概览</a>
+    <a href="/admin/upload">上传试卷</a>
+    <a href="/admin/papers">试卷列表</a>
+    <a href="/admin/codes" class="active">激活码</a>
+  </aside>
+  <div class="admin-content">
+    <h2>激活码管理</h2>
+    <form id="gen-form">
+      <label>VIP 天数</label>
+      <input type="number" name="vip_days" value="30" min="1" max="3650">
+      <label>生成数量</label>
+      <input type="number" name="count" value="10" min="1" max="100">
+      <button type="submit">生成激活码</button>
+    </form>
+    <div id="gen-result"></div>
+    <h3>所有激活码</h3>
+    <table class="code-table">
+      <thead><tr><th>激活码</th><th>天数</th><th>状态</th><th>使用者</th><th>使用时间</th></tr></thead>
+      <tbody>
+      {% for c in codes %}
+      <tr>
+        <td><code>{{ c.code }}</code></td>
+        <td>{{ c.vip_days }}</td>
+        <td>{% if c.is_used %}<span class="badge-used">已用</span>{% else %}<span class="badge-ok">可用</span>{% endif %}</td>
+        <td>{{ c.used_by or '-' }}</td>
+        <td>{{ c.used_at or '-' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+document.getElementById('gen-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData(this);
+  fetch('/admin/codes/generate', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('gen-result');
+      if (d.ok) {
+        el.innerHTML = '<div class="flash-ok">生成成功:<br><textarea rows="5" style="width:100%">' + d.codes.join('\\n') + '</textarea></div>';
+      }
+    });
+});
+</script>
+{% endblock %}

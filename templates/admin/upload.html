@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}上传试卷{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <h3>管理后台</h3>
+    <a href="/admin">概览</a>
+    <a href="/admin/upload" class="active">上传试卷</a>
+    <a href="/admin/papers">试卷列表</a>
+    <a href="/admin/codes">激活码</a>
+  </aside>
+  <div class="admin-content">
+    <h2>上传试卷 PDF</h2>
+    <form id="upload-form" enctype="multipart/form-data">
+      <label>年份</label>
+      <input type="number" name="year" required placeholder="如 2024">
+      <label>省份</label>
+      <input type="text" name="province" required placeholder="如 全国卷">
+      <label>试卷类型</label>
+      <input type="text" name="paper_type" required placeholder="如 理综">
+      <label>试卷标题</label>
+      <input type="text" name="title" required placeholder="如 2024年高考全国卷理综化学">
+      <label>PDF 文件</label>
+      <input type="file" name="pdf" accept=".pdf" required>
+      <button type="submit">上传并解析</button>
+    </form>
+    <div id="upload-result"></div>
+  </div>
+</div>
+<script>
+document.getElementById('upload-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var fd = new FormData(this);
+  var btn = this.querySelector('button');
+  btn.textContent = '上传中...';
+  btn.disabled = true;
+  fetch('/admin/upload', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('upload-result');
+      if (d.ok) {
+        el.innerHTML = '<div class="flash-ok">' + d.msg + ' <a href="/admin/parse/' + d.paper_id + '">去审核</a></div>';
+      } else {
+        el.innerHTML = '<div class="flash-error">' + d.msg + '</div>';
+      }
+      btn.textContent = '上传并解析';
+      btn.disabled = false;
+    });
+});
+</script>
+{% endblock %}

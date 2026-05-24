@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}审核解析 — {{ paper.title }}{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <h3>管理后台</h3>
+    <a href="/admin">概览</a>
+    <a href="/admin/upload">上传试卷</a>
+    <a href="/admin/papers">试卷列表</a>
+    <a href="/admin/codes">激活码</a>
+  </aside>
+  <div class="admin-content">
+    <h2>{{ paper.title }} <small>{{ paper.year }} {{ paper.province }} {{ paper.paper_type }}</small></h2>
+    {% if error %}
+      <div class="flash-error">{{ error }}</div>
+      <a href="/admin/upload">重新上传</a>
+    {% else %}
+      <p>AI 解析出 {{ questions|length }} 道题目，请审核后确认入库</p>
+      <div id="questions-editor">
+        {% for q in questions %}
+        <div class="edit-card" data-index="{{ loop.index0 }}">
+          <h3>第 {{ q.question_num }} 题 — {{ q.q_type }}</h3>
+          <label>题型</label>
+          <input type="text" name="q_type" value="{{ q.q_type }}">
+          <label>题干</label>
+          <textarea name="stem" rows="4">{{ q.stem }}</textarea>
+          <label>选项 (JSON)</label>
+          <textarea name="options" rows="2">{{ q.options | tojson }}</textarea>
+          <label>答案</label>
+          <input type="text" name="answer" value="{{ q.answer }}">
+          <label>解析</label>
+          <textarea name="explanation" rows="3">{{ q.explanation or '' }}</textarea>
+          <label>知识点（空格分隔）</label>
+          <input type="text" name="topics" value="{{ q.topics or '' }}">
+          <input type="hidden" name="question_num" value="{{ q.question_num }}">
+        </div>
+        {% endfor %}
+      </div>
+      <button id="confirm-btn" onclick="confirmQuestions('{{ paper.id }}')">确认入库</button>
+      <button id="delete-btn" class="danger" onclick="deletePaper('{{ paper.id }}')">删除此试卷</button>
+      <div id="confirm-result"></div>
+    {% endif %}
+  </div>
+</div>
+<script>
+function confirmQuestions(paperId) {
+  var questions = [];
+  document.querySelectorAll('.edit-card').forEach(function(card) {
+    var q = {};
+    card.querySelectorAll('input, textarea').forEach(function(el) {
+      var name = el.name;
+      if (name === 'options') {
+        try { q[name] = JSON.parse(el.value); } catch(e) { q[name] = []; }
+      } else if (name === 'question_num') {
+        q[name] = parseInt(el.value);
+      } else {
+        q[name] = el.value;
+      }
+    });
+    questions.push(q);
+  });
+  var btn = document.getElementById('confirm-btn');
+  btn.disabled = true;
+  btn.textContent = '入库中...';
+  fetch('/admin/parse/' + paperId + '/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questions: questions })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    var el = document.getElementById('confirm-result');
+    el.textContent = d.msg;
+    el.style.color = d.ok ? '#4caf50' : '#f44336';
+    if (d.ok) { setTimeout(function() { location.href = '/admin/papers'; }, 2000); }
+  });
+}
+function deletePaper(paperId) {
+  if (!confirm('确定删除？')) return;
+  fetch('/admin/parse/' + paperId + '/delete', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) { location.href = '/admin/papers'; }
+    });
+}
+</script>
+{% endblock %}

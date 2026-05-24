@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}管理后台{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <h3>管理后台</h3>
+    <a href="/admin" class="active">概览</a>
+    <a href="/admin/upload">上传试卷</a>
+    <a href="/admin/papers">试卷列表</a>
+    <a href="/admin/codes">激活码</a>
+  </aside>
+  <div class="admin-content">
+    <h2>概览</h2>
+    <div class="stats-grid">
+      <div class="stat-card"><h3>{{ stats.total_questions }}</h3><p>题目总数</p></div>
+      <div class="stat-card"><h3>{{ stats.total_papers }}</h3><p>试卷总数</p></div>
+      <div class="stat-card"><h3>{{ pending|length }}</h3><p>待审核</p></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

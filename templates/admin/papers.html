@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}试卷列表{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <aside class="admin-sidebar">
+    <h3>管理后台</h3>
+    <a href="/admin">概览</a>
+    <a href="/admin/upload">上传试卷</a>
+    <a href="/admin/papers" class="active">试卷列表</a>
+    <a href="/admin/codes">激活码</a>
+  </aside>
+  <div class="admin-content">
+    <h2>试卷列表</h2>
+    <table class="code-table">
+      <thead><tr><th>标题</th><th>年份</th><th>省份</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>
+      {% for p in papers %}
+      <tr>
+        <td>{{ p.title }}</td>
+        <td>{{ p.year }}</td>
+        <td>{{ p.province }}</td>
+        <td>{{ p.paper_type }}</td>
+        <td>{% if p.status == 'confirmed' %}<span class="badge-ok">已入库</span>{% else %}<span class="badge-used">待审核</span>{% endif %}</td>
+        <td>
+          {% if p.status != 'confirmed' %}<a href="/admin/parse/{{ p.id }}">审核</a>{% else %}已入库{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
