@@ -7,7 +7,23 @@ PAPERS_DIR = os.path.join(DATA_DIR, 'papers')
 UPLOAD_DIR = os.path.join(DATA_DIR, 'uploads')
 DB_PATH = os.path.join(DATA_DIR, 'chem.db')
 
-SECRET_KEY = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+def _get_secret_key():
+    """Get SECRET_KEY from env or persistent file."""
+    key = os.environ.get('SECRET_KEY')
+    if key:
+        return key
+    key_file = os.path.join(DATA_DIR, '.secret_key')
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(key_file):
+        with open(key_file) as f:
+            return f.read().strip()
+    key = secrets.token_hex(32)
+    with open(key_file, 'w') as f:
+        f.write(key)
+    return key
+
+
+SECRET_KEY = _get_secret_key()
 
 DEEPSEEK_API_KEY = os.environ.get(
     'DEEPSEEK_API_KEY',
