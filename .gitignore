@@ -1,0 +1,14 @@
+__pycache__/
+.idea/
+data/chem.db
+data/papers/
+*.pyc
+paper_urls*.json
+check_*.py
+quick_test.py
+test_sources.py
+mirror_test.py
+explore_datasets.py
+debug_crawl.py
+try_search.py
+run_test_batch.py

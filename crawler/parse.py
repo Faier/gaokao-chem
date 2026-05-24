@@ -29,6 +29,9 @@ except ImportError:
 
 EXTRACTION_PROMPT = """你是一个高考化学试卷解析专家。请将以下试卷内容解析为结构化的题目列表。
 
+一份标准的高考化学试卷通常包含 10-15 道题目（7道选择题+3道必做大题+2道选做题）。
+请只提取真正的考试题目，不要提取：试卷说明、答题须知、评分标准、目录、页眉页脚等非题目内容。
+
 对于每道题目，提取以下字段并以 JSON 数组格式返回：
 - question_num: 题号（整数）
 - q_type: 题型，只能是 "选择题" / "填空题" / "实验题" / "计算题" / "简答题" 之一
@@ -37,6 +40,9 @@ EXTRACTION_PROMPT = """你是一个高考化学试卷解析专家。请将以下
 - answer: 标准答案
 - explanation: 题目解析（如果有的话）
 - topics: 涉及的知识点关键词，用空格分隔，如 "氧化还原反应 电化学 原电池"
+
+重要：每道大题（如工艺流程题、实验题）应作为一个整体题目，不要将其拆分成多个小题。
+一道大题下面的多个小问应该合并到 stem 字段中。
 
 请严格按以下 JSON 格式返回，不要包含其他内容：
 ```json
@@ -92,8 +98,11 @@ def _extract_text_from_pdf(filepath):
     return None
 
 
-def _call_deepseek(prompt, paper_text):
-    """Send extraction request to DeepSeek API, return parsed JSON or None."""
+def _call_deepseek(prompt, paper_text, retry=True):
+    """Send extraction request to DeepSeek API, return parsed JSON or None.
+
+    Retries once with a fix-prompt if the first parse fails due to JSON errors.
+    """
     payload = {
         "model": DEEPSEEK_MODEL,
         "messages": [
@@ -114,6 +123,7 @@ def _call_deepseek(prompt, paper_text):
             return None
         result = resp.json()
         content = result["choices"][0]["message"]["content"]
+
         # Extract JSON from markdown code block
         m = re.search(r'```(?:json)?\s*([\s\S]*?)```', content)
         if m:
@@ -122,8 +132,18 @@ def _call_deepseek(prompt, paper_text):
             m = re.search(r'\{[\s\S]*\}', content)
             if m:
                 content = m.group()
+
         return json.loads(content)
-    except (json.JSONDecodeError, KeyError, requests.RequestException) as e:
+
+    except json.JSONDecodeError as e:
+        print(f"[parse] JSON parse error: {e}")
+        if retry:
+            print("[parse] Retrying with stricter prompt...")
+            # Save partial content and try a fix-prompt
+            fix_prompt = prompt + "\n\nIMPORTANT: You MUST output ONLY valid JSON. No trailing commas. No unescaped quotes. No markdown outside the JSON block. The JSON must be parseable by Python's json.loads()."
+            return _call_deepseek(fix_prompt, paper_text[:20000], retry=False)
+        return None
+    except (KeyError, requests.RequestException) as e:
         print(f"[parse] API call failed: {e}")
         return None
 
