@@ -1,113 +1,60 @@
-"""Keyword search via SQLite FTS5 with LIKE fallback for Chinese text."""
+"""Keyword search with jieba tokenization for Chinese text."""
 
+import json
+import jieba
 from models import get_db
 
-
-def _like_search(conn, q, page, size, year, province, q_type):
-    """Fallback LIKE-based search. Used when FTS5 returns 0 results."""
-    like_pattern = '%' + q.strip().replace('%', '\\%') + '%'
-    params = [like_pattern, like_pattern, like_pattern, like_pattern]
-
-    where_sql = ""
-    if year:
-        where_sql += " AND q.year = ?"
-        params.append(int(year))
-    if province:
-        where_sql += " AND q.province = ?"
-        params.append(province)
-    if q_type:
-        where_sql += " AND q.q_type = ?"
-        params.append(q_type)
-
-    count_sql = f"""
-        SELECT COUNT(*) FROM questions q
-        WHERE (q.stem LIKE ? OR q.answer LIKE ? OR q.explanation LIKE ? OR q.topics LIKE ?)
-        {where_sql}
-    """
-    total = conn.execute(count_sql, params).fetchone()[0]
-
-    offset = (page - 1) * size
-    query_sql = f"""
-        SELECT * FROM questions q
-        WHERE (q.stem LIKE ? OR q.answer LIKE ? OR q.explanation LIKE ? OR q.topics LIKE ?)
-        {where_sql}
-        ORDER BY q.year DESC LIMIT ? OFFSET ?
-    """
-    rows = conn.execute(query_sql, params + [size, offset]).fetchall()
-    return total, rows
+jieba.setLogLevel(20)
 
 
-def search_keyword(q, page=1, size=20, year=None, province=None, q_type=None):
-    """Full-text search with optional filters.
-
-    Tries FTS5 first; falls back to LIKE search when FTS5 returns 0 results
-    (common for Chinese text since unicode61 tokenizer treats each CJK
-    character as a separate token).
-    """
-    if not q or not q.strip():
-        return {'total': 0, 'page': page, 'size': size, 'questions': []}
-
+def search_questions(keyword='', page=1, size=15, year=None, province=None, q_type=None):
+    """Paginated question search with jieba-tokenized LIKE matching and filters."""
     conn = get_db()
 
-    where_clauses = []
+    where_parts = []
     params = []
+
+    if keyword and keyword.strip():
+        tokens = [t.strip() for t in jieba.cut(keyword) if len(t.strip()) >= 1]
+        if tokens:
+            like_parts = []
+            for token in tokens:
+                like_parts.append(
+                    "(q.stem LIKE ? OR q.answer LIKE ? OR q.explanation LIKE ? OR q.topics LIKE ?)"
+                )
+                pattern = '%' + token.replace('%', '\\%') + '%'
+                params.extend([pattern, pattern, pattern, pattern])
+            where_parts.append("(" + " AND ".join(like_parts) + ")")
+
     if year:
-        where_clauses.append("q.year = ?")
+        where_parts.append("q.year = ?")
         params.append(int(year))
     if province:
-        where_clauses.append("q.province = ?")
+        where_parts.append("q.province = ?")
         params.append(province)
     if q_type:
-        where_clauses.append("q.q_type = ?")
+        where_parts.append("q.q_type = ?")
         params.append(q_type)
 
-    where_sql = ''
-    if where_clauses:
-        where_sql = ' AND ' + ' AND '.join(where_clauses)
+    where_sql = (" AND ".join(where_parts)) if where_parts else "1=1"
 
-    # Try FTS5 first
-    total = 0
-    rows = []
-    terms = q.strip().split()
-    fts_query = ' AND '.join(terms)
+    total = conn.execute(
+        f"SELECT COUNT(*) FROM questions q WHERE {where_sql}", params
+    ).fetchone()[0]
 
-    try:
-        count_sql = f"""
-            SELECT COUNT(*) FROM questions_fts f
-            JOIN questions q ON q.rowid = f.rowid
-            WHERE questions_fts MATCH ?{where_sql}
-        """
-        total = conn.execute(count_sql, [fts_query] + params).fetchone()[0]
-    except Exception:
-        total = 0
-
-    if total > 0:
-        offset = (page - 1) * size
-        try:
-            query_sql = f"""
-                SELECT q.* FROM questions_fts f
-                JOIN questions q ON q.rowid = f.rowid
-                WHERE questions_fts MATCH ?{where_sql}
-                ORDER BY rank
-                LIMIT ? OFFSET ?
-            """
-            rows = conn.execute(query_sql, [fts_query] + params + [size, offset]).fetchall()
-        except Exception:
-            total = 0
-
-    # Fall back to LIKE if FTS5 found nothing
-    if total == 0:
-        total, rows = _like_search(conn, q, page, size, year, province, q_type)
-
+    offset = (page - 1) * size
+    rows = conn.execute(
+        f"SELECT * FROM questions q WHERE {where_sql} ORDER BY q.year DESC LIMIT ? OFFSET ?",
+        params + [size, offset]
+    ).fetchall()
     conn.close()
 
     questions = []
     for row in rows:
         qd = dict(row)
-        import json
         try:
             qd['options'] = json.loads(qd['options']) if qd.get('options') else []
-        except (json.JSONDecodeError, TypeError):
+        except Exception:
             qd['options'] = []
         questions.append(qd)
 
@@ -117,13 +64,3 @@ def search_keyword(q, page=1, size=20, year=None, province=None, q_type=None):
         'size': size,
         'questions': questions
     }
-
-
-def search_semantic(q, top_k=10):
-    """Semantic search stub — falls back to keyword search for MVP."""
-    result = search_keyword(q, page=1, size=top_k)
-    if result['questions']:
-        result['scores'] = [1.0 - i * 0.05 for i in range(len(result['questions']))]
-    else:
-        result['scores'] = []
-    return result
