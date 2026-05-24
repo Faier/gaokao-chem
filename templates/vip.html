@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}VIP 充值{% endblock %}
+{% block body_class %}auth-page{% endblock %}
+{% block content %}
+<div class="auth-container">
+  <h2>VIP 充值</h2>
+  <p style="color:#888;margin-bottom:16px;">输入激活码开通 VIP</p>
+  <form id="vip-form">
+    <label>激活码</label>
+    <input type="text" id="code-input" placeholder="GCHEM-XXXX-XXXX" required>
+    <button type="submit">激活</button>
+  </form>
+  <div id="vip-result" style="margin-top:12px;"></div>
+</div>
+<script>
+document.getElementById('vip-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  var code = document.getElementById('code-input').value;
+  var formData = new FormData();
+  formData.append('code', code);
+  fetch('/api/vip/activate', { method: 'POST', body: formData })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var el = document.getElementById('vip-result');
+      el.textContent = d.msg;
+      el.style.color = d.ok ? '#4caf50' : '#f44336';
+      if (d.ok) { setTimeout(function() { location.reload(); }, 1500); }
+    });
+});
+</script>
+{% endblock %}
