@@ -1,30 +1,79 @@
 {% extends "base.html" %}
-{% block title %}VIP 充值{% endblock %}
-{% block body_class %}auth-page{% endblock %}
+{% block title %}VIP 激活{% endblock %}
+{% block body_class %}membership-page{% endblock %}
 {% block content %}
-<div class="auth-container">
-  <h2>VIP 充值</h2>
-  <p style="color:#888;margin-bottom:16px;">输入激活码开通 VIP</p>
-  <form id="vip-form">
-    <label>激活码</label>
-    <input type="text" id="code-input" placeholder="GCHEM-XXXX-XXXX" required>
-    <button type="submit">激活</button>
-  </form>
-  <div id="vip-result" style="margin-top:12px;"></div>
-</div>
+<section class="membership-shell">
+  <div class="membership-overview">
+    <span class="eyebrow">VIP 权限</span>
+    <h1>激活高级检索与详尽解析能力</h1>
+    <p>面向需要持续查题、整理真题和复盘知识点的用户，保留高频使用场景下最实用的功能权益。</p>
+
+    <div class="benefit-grid">
+      <div class="benefit-card">
+        <i data-lucide="search-check"></i>
+        <strong>不限次数检索</strong>
+        <span>持续查询历年化学真题，不受试用时长限制。</span>
+      </div>
+      <div class="benefit-card">
+        <i data-lucide="book-open-text"></i>
+        <strong>查看答案与解析</strong>
+        <span>快速获取题目答案、解析和相关知识点。</span>
+      </div>
+      <div class="benefit-card">
+        <i data-lucide="funnel"></i>
+        <strong>多条件筛选</strong>
+        <span>组合年份、省份和题型，高效定位目标题目。</span>
+      </div>
+      <div class="benefit-card">
+        <i data-lucide="refresh-cw"></i>
+        <strong>持续更新题库</strong>
+        <span>新增试卷进入题库后可继续使用同一套工具检索。</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="activation-panel">
+    <div class="activation-panel-header">
+      <h2>输入激活码</h2>
+      <p>支持管理员批量生成的 `GCHEM-XXXX-XXXX` 激活码。</p>
+    </div>
+
+    <form id="vip-form" class="auth-form">
+      <label>激活码</label>
+      <input type="text" id="code-input" placeholder="请输入 GCHEM-XXXX-XXXX 激活码" required>
+      <button type="submit">
+        <i data-lucide="sparkles" class="button-icon"></i>立即激活 VIP
+      </button>
+    </form>
+    <div id="vip-result" class="activation-result"></div>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
 <script>
 document.getElementById('vip-form').addEventListener('submit', function(e) {
   e.preventDefault();
   var code = document.getElementById('code-input').value;
   var formData = new FormData();
   formData.append('code', code);
+
+  var btn = this.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = '正在激活...';
+
   fetch('/api/vip/activate', { method: 'POST', body: formData })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       var el = document.getElementById('vip-result');
       el.textContent = d.msg;
-      el.style.color = d.ok ? '#4caf50' : '#f44336';
-      if (d.ok) { setTimeout(function() { location.reload(); }, 1500); }
+      el.className = 'activation-result ' + (d.ok ? 'result-ok' : 'result-error');
+      if (d.ok) {
+        setTimeout(function() { location.href = '/'; }, 1500);
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="sparkles" class="button-icon"></i>立即激活 VIP';
+        if (window.lucide) window.lucide.createIcons();
+      }
     });
 });
 </script>

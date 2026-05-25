@@ -1,51 +1,102 @@
 {% extends "base.html" %}
 {% block title %}激活码管理{% endblock %}
 {% block content %}
-<div class="admin-layout">
+<section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
-    <a href="/admin">概览</a>
-    <a href="/admin/upload">上传试卷</a>
-    <a href="/admin/papers">试卷列表</a>
-    <a href="/admin/codes" class="active">激活码</a>
+    <a href="/admin/"><i data-lucide="bar-chart-3"></i>概览</a>
+    <a href="/admin/upload"><i data-lucide="upload-cloud"></i>上传试卷</a>
+    <a href="/admin/papers"><i data-lucide="file-text"></i>试卷列表</a>
+    <a href="/admin/codes" class="active"><i data-lucide="key-round"></i>激活码</a>
   </aside>
-  <div class="admin-content">
-    <h2>激活码管理</h2>
-    <form id="gen-form">
-      <label>VIP 天数</label>
-      <input type="number" name="vip_days" value="30" min="1" max="3650">
-      <label>生成数量</label>
-      <input type="number" name="count" value="10" min="1" max="100">
-      <button type="submit">生成激活码</button>
-    </form>
-    <div id="gen-result"></div>
-    <h3>所有激活码</h3>
-    <table class="code-table">
-      <thead><tr><th>激活码</th><th>天数</th><th>状态</th><th>使用者</th><th>使用时间</th></tr></thead>
-      <tbody>
-      {% for c in codes %}
-      <tr>
-        <td><code>{{ c.code }}</code></td>
-        <td>{{ c.vip_days }}</td>
-        <td>{% if c.is_used %}<span class="badge-used">已用</span>{% else %}<span class="badge-ok">可用</span>{% endif %}</td>
-        <td>{{ c.used_by or '-' }}</td>
-        <td>{{ c.used_at or '-' }}</td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+
+  <div class="admin-stage">
+    <header class="workspace-header">
+      <div>
+        <span class="section-kicker">Membership Codes</span>
+        <h1>激活码管理</h1>
+        <p>生成 VIP 激活码，查看使用状态，并将批量结果复制给需要开通权限的用户。</p>
+      </div>
+    </header>
+
+    <section class="workspace-panel admin-content">
+      <form id="gen-form" style="margin-bottom: 28px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <label>VIP 有效天数</label>
+            <input type="number" name="vip_days" value="30" min="1" max="3650">
+          </div>
+          <div>
+            <label>生成数量</label>
+            <input type="number" name="count" value="10" min="1" max="100">
+          </div>
+        </div>
+        <button type="submit" style="margin-top: 18px;">
+          <i data-lucide="plus-circle" class="button-icon"></i>批量生成激活码
+        </button>
+      </form>
+
+      <div id="gen-result" style="margin-bottom: 24px;"></div>
+
+      <h3 style="margin-bottom: 12px; font-size: 18px;">所有激活码</h3>
+      <div class="code-table-wrapper">
+        <table class="code-table">
+          <thead>
+            <tr>
+              <th>激活码</th>
+              <th>有效天数</th>
+              <th>状态</th>
+              <th>使用者</th>
+              <th>激活时间</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for c in codes %}
+            <tr>
+              <td><code>{{ c.code }}</code></td>
+              <td>{{ c.vip_days }} 天</td>
+              <td>
+                {% if c.is_used %}
+                  <span class="badge-used">
+                    <i data-lucide="check" style="width:11px; height:11px; display:inline-block; vertical-align:middle;"></i> 已使用
+                  </span>
+                {% else %}
+                  <span class="badge-ok">
+                    <i data-lucide="unlock" style="width:11px; height:11px; display:inline-block; vertical-align:middle;"></i> 可用
+                  </span>
+                {% endif %}
+              </td>
+              <td style="font-weight: 600; color: var(--text-1);">{{ c.used_by or '-' }}</td>
+              <td>{{ c.used_at or '-' }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
-</div>
+</section>
 <script>
 document.getElementById('gen-form').addEventListener('submit', function(e) {
   e.preventDefault();
   var fd = new FormData(this);
+  var btn = this.querySelector('button');
+  btn.disabled = true;
+  btn.textContent = '生成中...';
+
   fetch('/admin/codes/generate', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
+      btn.innerHTML = '<i data-lucide="plus-circle" class="button-icon"></i>批量生成激活码';
+      btn.disabled = false;
       var el = document.getElementById('gen-result');
       if (d.ok) {
-        el.innerHTML = '<div class="flash-ok">生成成功:<br><textarea rows="5" style="width:100%">' + d.codes.join('\\n') + '</textarea></div>';
+        el.innerHTML = '<div class="flash-ok" style="flex-direction:column; align-items:stretch; gap:10px;">'
+          + '<div style="display:flex; align-items:center; gap:8px;"><i data-lucide="check-circle" style="width:16px; height:16px;"></i><span>成功生成 ' + d.codes.length + ' 个激活码，点击文本框可全选复制。</span></div>'
+          + '<textarea rows="6" style="width:100%; padding:12px; border-radius:16px; background:#fff; border:1px solid var(--line-soft); color:var(--blue-600); resize:none;" onclick="this.select();" readonly>' + d.codes.join('\n') + '</textarea>'
+          + '</div>';
+        if (window.lucide) window.lucide.createIcons();
+        setTimeout(function() { location.reload(); }, 4000);
       }
     });
 });

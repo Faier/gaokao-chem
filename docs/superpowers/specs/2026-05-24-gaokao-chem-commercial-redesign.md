@@ -61,6 +61,15 @@ CREATE INDEX idx_q_province ON questions(province);
 CREATE INDEX idx_q_type ON questions(q_type);
 ```
 
+### 搜索改进：jieba 分词 + FTS5
+
+原有 FTS5 unicode61 分词器对中文逐字拆分，效果很差。改用 jieba 分词：
+
+1. 新增 `questions_fts_cn` 表，content 列存 jieba 分词后的文本（空格分隔）
+2. 入库时用 jieba 分词（内置化学词典）构建 FTS 索引
+3. 查询时同样用 jieba 分词用户输入，FTS5 MATCH 精确匹配
+4. 移除 LIKE 兜底逻辑（jieba 分词后 FTS5 已能正确处理中文）
+
 ### VIP 逻辑
 
 - 注册时 `trial_start = now()`，24 小时内可查看

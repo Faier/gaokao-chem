@@ -1,43 +1,88 @@
 {% extends "base.html" %}
 {% block title %}高考化学题库{% endblock %}
 {% block content %}
-<div class="query-layout">
-  <aside class="query-sidebar">
-    <h3>筛选条件</h3>
-    <div class="filter-section">
-      <h4>年份</h4>
-      <div class="filter-tags" id="filter-years"></div>
+<section class="search-shell">
+  <!--<header class="search-hero">
+    <div>
+      <span class="eyebrow">化学真题检索工作台</span>
+      <h1>更快找到需要的全国化学高考题</h1>
+      <p>按年份、省份、题型与关键词组合检索，快速定位题干、答案、解析和知识点。</p>
     </div>
-    <div class="filter-section">
-      <h4>省份</h4>
-      <div class="filter-tags" id="filter-provinces"></div>
+    <div class="search-hero-meta">
+      <div class="hero-stat">
+        <strong>多维筛选</strong>
+        <span>年份 / 省份 / 题型</span>
+      </div>
+      <div class="hero-stat">
+        <strong>答案解析</strong>
+        <span>支持题目详情展开查看</span>
+      </div>
     </div>
-    <div class="filter-section">
-      <h4>题型</h4>
-      <div class="filter-tags" id="filter-types"></div>
-    </div>
-    <div class="filter-summary" id="filter-summary" style="display:none">
-      <div>已选:</div>
-      <div id="selected-tags"></div>
-      <div>结果: <span id="selected-count">0</span> 条</div>
-    </div>
-  </aside>
+  </header>-->
 
-  <div class="query-main">
-    <div class="search-bar">
-      <input type="text" id="search-input" placeholder="搜索题干 / 答案 / 解析 / 知识点..." autocomplete="off">
-      <button id="search-btn">搜索</button>
-    </div>
-    <div id="results-container">
-      <div class="empty-state"><p>点击左侧筛选条件或输入关键词开始查询</p></div>
-    </div>
-    <div id="pagination"></div>
+  <div class="query-layout">
+    <aside class="query-sidebar filter-panel">
+      <div class="sidebar-section-heading">
+        <span class="section-kicker">筛选器</span>
+        <h2>按条件缩小范围</h2>
+      </div>
+
+      <div class="filter-section">
+        <h3>年份</h3>
+        <div class="filter-tags" id="filter-years"></div>
+      </div>
+
+      <div class="filter-section">
+        <h3>省份</h3>
+        <div class="filter-tags" id="filter-provinces"></div>
+      </div>
+
+      <div class="filter-section">
+        <h3>题型</h3>
+        <div class="filter-tags" id="filter-types"></div>
+      </div>
+
+      <div class="filter-summary" id="filter-summary" style="display:none">
+        <span class="summary-label">当前筛选</span>
+        <div id="selected-tags"></div>
+        <div class="summary-count">结果数量 <span id="selected-count">0</span></div>
+      </div>
+    </aside>
+
+    <section class="query-main results-panel">
+      <div class="results-toolbar">
+        <div>
+          <span class="section-kicker">关键词搜索</span>
+          <h2>输入题干、解析或知识点</h2>
+        </div>
+      </div>
+
+      <div class="search-bar">
+        <div class="search-input-wrap">
+          <i data-lucide="search" class="search-input-icon"></i>
+          <input type="text" id="search-input" placeholder="搜索题干 / 答案 / 解析 / 知识点" autocomplete="off">
+        </div>
+        <button id="search-btn">
+          <i data-lucide="search" class="button-icon"></i>搜索
+        </button>
+      </div>
+
+      <div id="results-container">
+        <div class="empty-state">
+          <i data-lucide="flask-conical" class="empty-icon"></i>
+          <p>选择左侧筛选条件，或直接输入关键词开始检索。</p>
+        </div>
+      </div>
+      <div id="pagination"></div>
+    </section>
   </div>
-</div>
+</section>
 
 <div id="detail-modal" class="modal" style="display:none">
   <div class="modal-content">
-    <span class="modal-close" onclick="closeModal()">&times;</span>
+    <button class="modal-close" type="button" onclick="closeModal()" aria-label="关闭详情">
+      <i data-lucide="x"></i>
+    </button>
     <div id="modal-body"></div>
   </div>
 </div>

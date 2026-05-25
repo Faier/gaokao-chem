@@ -1,33 +1,73 @@
 {% extends "base.html" %}
 {% block title %}试卷列表{% endblock %}
 {% block content %}
-<div class="admin-layout">
+<section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
-    <a href="/admin">概览</a>
-    <a href="/admin/upload">上传试卷</a>
-    <a href="/admin/papers" class="active">试卷列表</a>
-    <a href="/admin/codes">激活码</a>
+    <a href="/admin/"><i data-lucide="bar-chart-3"></i>概览</a>
+    <a href="/admin/upload"><i data-lucide="upload-cloud"></i>上传试卷</a>
+    <a href="/admin/papers" class="active"><i data-lucide="file-text"></i>试卷列表</a>
+    <a href="/admin/codes"><i data-lucide="key-round"></i>激活码</a>
   </aside>
-  <div class="admin-content">
-    <h2>试卷列表</h2>
-    <table class="code-table">
-      <thead><tr><th>标题</th><th>年份</th><th>省份</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
-      <tbody>
-      {% for p in papers %}
-      <tr>
-        <td>{{ p.title }}</td>
-        <td>{{ p.year }}</td>
-        <td>{{ p.province }}</td>
-        <td>{{ p.paper_type }}</td>
-        <td>{% if p.status == 'confirmed' %}<span class="badge-ok">已入库</span>{% else %}<span class="badge-used">待审核</span>{% endif %}</td>
-        <td>
-          {% if p.status != 'confirmed' %}<a href="/admin/review/{{ p.id }}">审核</a>{% else %}已入库{% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-      </tbody>
-    </table>
+
+  <div class="admin-stage">
+    <header class="workspace-header">
+      <div>
+        <span class="section-kicker">Paper Library</span>
+        <h1>试卷列表</h1>
+        <p>查看已上传试卷的状态，未确认试卷可直接进入审核流程。</p>
+      </div>
+    </header>
+
+    <section class="workspace-panel admin-content">
+      <div class="code-table-wrapper">
+        <table class="code-table">
+          <thead>
+            <tr>
+              <th>标题</th>
+              <th>年份</th>
+              <th>省份</th>
+              <th>类型</th>
+              <th>状态</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for p in papers %}
+            <tr>
+              <td style="font-weight: 700; color: var(--text-1);">{{ p.title }}</td>
+              <td>{{ p.year }}年</td>
+              <td>{{ p.province }}</td>
+              <td>{{ p.paper_type }}</td>
+              <td>
+                {% if p.status == 'confirmed' %}
+                  <span class="badge-ok">
+                    <i data-lucide="check-circle-2" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i>已入库
+                  </span>
+                {% else %}
+                  <span class="badge-used">
+                    <i data-lucide="alert-circle" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"></i>待审核
+                  </span>
+                {% endif %}
+              </td>
+              <td>
+                {% if p.status != 'confirmed' %}
+                  <a href="/admin/review/{{ p.id }}" class="nav-link nav-link-secondary" style="min-height: 36px; padding: 0 12px;">
+                    <i data-lucide="check-square" class="link-icon"></i>开始审核
+                  </a>
+                {% else %}
+                  <span style="font-size: 13px; color: var(--text-3);">
+                    <i data-lucide="lock" style="width: 11px; height: 11px; vertical-align: middle;"></i>
+                    已确认
+                  </span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
-</div>
+</section>
 {% endblock %}

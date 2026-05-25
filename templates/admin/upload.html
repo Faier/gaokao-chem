@@ -1,46 +1,77 @@
 {% extends "base.html" %}
 {% block title %}上传试卷{% endblock %}
 {% block content %}
-<div class="admin-layout">
+<section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
-    <a href="/admin">概览</a>
-    <a href="/admin/upload" class="active">上传试卷</a>
-    <a href="/admin/papers">试卷列表</a>
-    <a href="/admin/codes">激活码</a>
+    <a href="/admin/"><i data-lucide="bar-chart-3"></i>概览</a>
+    <a href="/admin/upload" class="active"><i data-lucide="upload-cloud"></i>上传试卷</a>
+    <a href="/admin/papers"><i data-lucide="file-text"></i>试卷列表</a>
+    <a href="/admin/codes"><i data-lucide="key-round"></i>激活码</a>
   </aside>
-  <div class="admin-content">
-    <h2>上传试卷 PDF</h2>
 
-    <!-- Step 1: Select file, auto-detect metadata -->
-    <div id="step1">
-      <label>PDF 文件</label>
-      <input type="file" id="pdf-file" accept=".pdf">
-      <button id="analyze-btn" onclick="analyzePDF()">自动识别信息</button>
-      <div id="analyze-status"></div>
-    </div>
+  <div class="admin-stage">
+    <header class="workspace-header">
+      <div>
+        <span class="section-kicker">Upload Workflow</span>
+        <h1>上传 PDF 并识别试卷信息</h1>
+        <p>先上传题目 PDF，再确认年份、省份和试卷类型，随后进入 AI 解析审核流程。</p>
+      </div>
+    </header>
 
-    <!-- Step 2: Review metadata and confirm (hidden initially) -->
-    <div id="step2" style="display:none">
-      <h3 style="color:#7ecfff;margin-bottom:4px;">确认试卷信息 <span id="meta-source" style="font-size:12px;color:#888;"></span></h3>
-      <div id="text-preview" class="flash-ok" style="max-height:120px;overflow-y:auto;font-size:12px;margin-bottom:12px;"></div>
-      <form id="confirm-form">
-        <label>年份</label>
-        <input type="number" id="meta-year" required>
-        <label>省份</label>
-        <input type="text" id="meta-province" required>
-        <label>试卷类型</label>
-        <input type="text" id="meta-paper-type" required>
-        <label>试卷标题</label>
-        <input type="text" id="meta-title" required>
-        <input type="hidden" id="meta-filepath">
-        <input type="hidden" id="meta-filename">
-        <button type="submit">确认上传并解析题目</button>
-      </form>
-      <div id="confirm-result"></div>
-    </div>
+    <section class="workspace-panel admin-content">
+      <div id="step1">
+        <i data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--blue-600); margin-bottom: 16px;"></i>
+        <p style="color: var(--text-2); font-size: 15px; margin-bottom: 14px;">请选择要导入的化学试卷 PDF 文件</p>
+        <input type="file" id="pdf-file" accept=".pdf">
+        <button id="analyze-btn" onclick="analyzePDF()" style="margin: 0 auto;">
+          <i data-lucide="scan-search" class="button-icon"></i>自动识别试卷信息
+        </button>
+        <div id="analyze-status"></div>
+      </div>
+
+      <div id="step2" style="display:none; margin-top: 20px;">
+        <h3 style="margin-bottom:12px;">
+          确认试卷元数据 <span id="meta-source" style="font-size:12px;color:var(--text-3);"></span>
+        </h3>
+
+        <div id="text-preview" class="flash-ok" style="max-height:140px; overflow-y:auto; font-size:12px; margin-bottom:20px; line-height:1.6;"></div>
+
+        <form id="confirm-form">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+            <div>
+              <label>年份</label>
+              <input type="number" id="meta-year" required placeholder="如 2024">
+            </div>
+            <div>
+              <label>省份</label>
+              <input type="text" id="meta-province" required placeholder="如 全国卷、北京">
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px;">
+            <div>
+              <label>试卷类型</label>
+              <input type="text" id="meta-paper-type" required placeholder="如 化学、理综">
+            </div>
+            <div>
+              <label>完整标题</label>
+              <input type="text" id="meta-title" required placeholder="如 2024 年全国卷化学">
+            </div>
+          </div>
+
+          <input type="hidden" id="meta-filepath">
+          <input type="hidden" id="meta-filename">
+
+          <button type="submit" style="width: 100%; margin-top: 24px;">
+            <i data-lucide="sparkles" class="button-icon"></i>确认上传并启动 AI 解析
+          </button>
+        </form>
+        <div id="confirm-result" style="margin-top: 16px;"></div>
+      </div>
+    </section>
   </div>
-</div>
+</section>
 
 <script>
 var filepath = '';
@@ -52,9 +83,14 @@ function analyzePDF() {
 
   var btn = document.getElementById('analyze-btn');
   var status = document.getElementById('analyze-status');
-  btn.textContent = '解析中...';
+  btn.textContent = '分析中...';
   btn.disabled = true;
-  status.innerHTML = '<div class="flash-ok">正在提取文字并识别试卷信息...</div>';
+
+  status.innerHTML = '<div class="flash-ok" style="flex-direction: column; align-items: stretch; text-align: left; gap: 8px;">'
+    + '<div style="display:flex; align-items:center; gap:8px;"><i data-lucide="loader" class="animate-spin" style="width:16px;height:16px;"></i><span>正在提取文字并识别试卷信息...</span></div>'
+    + '<div class="loading-bar"><div class="loading-bar-fill"></div></div>'
+    + '</div>';
+  if (window.lucide) window.lucide.createIcons();
 
   var fd = new FormData();
   fd.append('pdf', file);
@@ -62,7 +98,7 @@ function analyzePDF() {
   fetch('/admin/upload/analyze', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      btn.textContent = '自动识别信息';
+      btn.innerHTML = '<i data-lucide="scan-search" class="button-icon"></i>自动识别试卷信息';
       btn.disabled = false;
       if (d.ok) {
         filepath = d.filepath;
@@ -79,9 +115,17 @@ function analyzePDF() {
         document.getElementById('step1').style.display = 'none';
         document.getElementById('step2').style.display = 'block';
         status.innerHTML = '';
+        if (window.lucide) window.lucide.createIcons();
       } else {
-        status.innerHTML = '<div class="flash-error">' + d.msg + '</div>';
+        status.innerHTML = '<div class="flash-error"><i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i><span>' + d.msg + '</span></div>';
+        if (window.lucide) window.lucide.createIcons();
       }
+    })
+    .catch(function() {
+      btn.innerHTML = '<i data-lucide="scan-search" class="button-icon"></i>自动识别试卷信息';
+      btn.disabled = false;
+      status.innerHTML = '<div class="flash-error"><i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i><span>请求失败，请重试</span></div>';
+      if (window.lucide) window.lucide.createIcons();
     });
 }
 
@@ -95,24 +139,37 @@ document.getElementById('confirm-form').addEventListener('submit', function(e) {
   fd.append('filepath', document.getElementById('meta-filepath').value);
 
   var btn = this.querySelector('button');
-  btn.textContent = '上传并解析中...';
+  btn.innerHTML = '<i data-lucide="loader" class="animate-spin" style="width:15px; height:15px;"></i> 正在保存并调用 AI 解析...';
   btn.disabled = true;
+
+  var el = document.getElementById('confirm-result');
+  el.innerHTML = '<div class="flash-ok" style="flex-direction: column; align-items: stretch; text-align: left; gap: 8px;">'
+    + '<div style="display:flex; align-items:center; gap:8px;"><i data-lucide="cpu" class="animate-spin" style="width:16px;height:16px;color:var(--blue-600)"></i><span>正在上传并解析题目...</span></div>'
+    + '<div class="loading-bar"><div class="loading-bar-fill"></div></div>'
+    + '</div>';
+  if (window.lucide) window.lucide.createIcons();
 
   fetch('/admin/upload/confirm', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
     .then(function(d) {
-      var el = document.getElementById('confirm-result');
       if (d.ok) {
-        el.innerHTML = '<div class="flash-ok">' + d.msg + '</div>';
-        // Redirect to review page after a short delay
+        el.innerHTML = '<div class="flash-ok"><i data-lucide="check" style="width:16px; height:16px;"></i><span>' + d.msg + '</span></div>';
+        if (window.lucide) window.lucide.createIcons();
         setTimeout(function() {
           location.href = '/admin/review/' + d.paper_id;
-        }, 2000);
+        }, 1500);
       } else {
-        el.innerHTML = '<div class="flash-error">' + d.msg + '</div>';
-        btn.textContent = '确认上传并解析题目';
+        el.innerHTML = '<div class="flash-error"><i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i><span>' + d.msg + '</span></div>';
+        btn.innerHTML = '<i data-lucide="sparkles" class="button-icon"></i>确认上传并启动 AI 解析';
         btn.disabled = false;
+        if (window.lucide) window.lucide.createIcons();
       }
+    })
+    .catch(function() {
+      el.innerHTML = '<div class="flash-error"><i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i><span>解析请求超时或网络中断，请重试</span></div>';
+      btn.innerHTML = '<i data-lucide="sparkles" class="button-icon"></i>确认上传并启动 AI 解析';
+      btn.disabled = false;
+      if (window.lucide) window.lucide.createIcons();
     });
 });
 </script>

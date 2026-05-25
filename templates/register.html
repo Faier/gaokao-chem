@@ -2,20 +2,41 @@
 {% block title %}注册{% endblock %}
 {% block body_class %}auth-page{% endblock %}
 {% block content %}
-<div class="auth-container">
-  <h2>注册</h2>
-  {% with messages = get_flashed_messages(category_filter=['error']) %}
-  {% if messages %}<div class="flash-error">{{ messages[0] }}</div>{% endif %}
-  {% endwith %}
-  <form method="post">
-    <label>用户名</label>
-    <input type="text" name="username" required autocomplete="username">
-    <label>密码（至少 6 位）</label>
-    <input type="password" name="password" required autocomplete="new-password">
-    <label>确认密码</label>
-    <input type="password" name="confirm" required autocomplete="new-password">
-    <button type="submit">注册</button>
-  </form>
-  <p class="auth-switch">已有账号？<a href="{{ url_for('auth.login') }}">去登录</a></p>
-</div>
+<section class="auth-shell">
+  <div class="auth-intro">
+    <span class="eyebrow">新用户试用</span>
+    <h1>创建账号，立即开始 24 小时试用</h1>
+    <p>注册后即可体验题库检索、条件筛选和答案解析。后续可通过激活码升级为长期 VIP。</p>
+  </div>
+
+  <div class="auth-card">
+    <div class="auth-card-header">
+      <h2>创建账号</h2>
+      <p>用户名长度 2-32 位，密码至少 6 位。</p>
+    </div>
+
+    {% with messages = get_flashed_messages(category_filter=['error']) %}
+    {% if messages %}
+      <div class="flash-error">
+        <i data-lucide="alert-circle"></i>
+        <span>{{ messages[0] }}</span>
+      </div>
+    {% endif %}
+    {% endwith %}
+
+    <form method="post" class="auth-form">
+      <label>用户名</label>
+      <input type="text" name="username" required placeholder="请输入用户名" autocomplete="username">
+      <label>密码</label>
+      <input type="password" name="password" required placeholder="请输入至少 6 位密码" autocomplete="new-password">
+      <label>确认密码</label>
+      <input type="password" name="confirm" required placeholder="请再次输入密码" autocomplete="new-password">
+      <button type="submit">
+        <i data-lucide="user-plus" class="button-icon"></i>立即注册
+      </button>
+    </form>
+
+    <p class="auth-switch">已经有账号？<a href="{{ url_for('auth.login') }}">去登录</a></p>
+  </div>
+</section>
 {% endblock %}

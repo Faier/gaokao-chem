@@ -3,37 +3,87 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}高考化学题库{% endblock %}</title>
+<title>{% block title %}高考化学题库{% endblock %} - 智能检索平台</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
 <link rel="stylesheet" href="/static/style.css">
 {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
+<div class="page-bg">
+  <div class="page-bg-glow page-bg-glow-left"></div>
+  <div class="page-bg-glow page-bg-glow-right"></div>
+</div>
+
 <nav class="top-nav">
   <div class="nav-left">
-    <a href="/" class="nav-logo">高考化学题库</a>
+    <a href="/" class="nav-logo">
+      <span class="logo-mark">
+        <i data-lucide="beaker" class="logo-icon"></i>
+      </span>
+      <span class="logo-copy">
+        <strong>高考化学题库</strong>
+        <small>全国化学真题智能检索</small>
+      </span>
+    </a>
   </div>
   <div class="nav-right">
     {% if current_user.is_authenticated %}
-      <span class="nav-user">{{ current_user.username }}</span>
-      {% if current_user.is_admin %}
-        <span class="nav-badge admin">管理员</span>
-        <a href="/admin" class="nav-link">后台</a>
-      {% elif current_user.has_vip() %}
-        <span class="nav-badge vip">VIP {{ current_user.vip_expire_at[:10] if current_user.vip_expire_at else '' }}</span>
-      {% else %}
-        <span class="nav-badge trial">试用 {{ current_user.trial_remaining_hours() }}h</span>
-        <a href="/api/vip/page" class="nav-link">充值</a>
-      {% endif %}
-      <a href="/auth/logout" class="nav-link">退出</a>
+      <div class="nav-user-panel">
+        <div class="nav-user-summary">
+          <span class="nav-user-name">{{ current_user.username }}</span>
+          {% if current_user.is_admin %}
+            <span class="nav-badge nav-badge-admin">
+              <i data-lucide="shield-check" class="badge-icon"></i>管理员
+            </span>
+          {% elif current_user.has_vip() %}
+            <span class="nav-badge nav-badge-vip">
+              <i data-lucide="sparkles" class="badge-icon"></i>VIP
+              {% if current_user.vip_expire_at %}至 {{ current_user.vip_expire_at[:10] }}{% endif %}
+            </span>
+          {% else %}
+            <span class="nav-badge nav-badge-trial">
+              <i data-lucide="clock-3" class="badge-icon"></i>试用 {{ current_user.trial_remaining_hours() }}h
+            </span>
+          {% endif %}
+        </div>
+        <div class="nav-actions">
+          {% if current_user.is_admin %}
+            <a href="/admin/" class="nav-link nav-link-secondary">
+              <i data-lucide="layout-dashboard" class="link-icon"></i>后台
+            </a>
+          {% elif not current_user.has_vip() %}
+            <a href="/api/vip/page" class="nav-link nav-link-vip">
+              <i data-lucide="credit-card" class="link-icon"></i>激活 VIP
+            </a>
+          {% endif %}
+          <a href="/auth/logout" class="nav-link nav-link-secondary">
+            <i data-lucide="log-out" class="link-icon"></i>退出
+          </a>
+        </div>
+      </div>
     {% else %}
-      <a href="/auth/login" class="nav-link">登录</a>
-      <a href="/auth/register" class="nav-link">注册</a>
+      <div class="nav-actions">
+        <a href="/auth/login" class="nav-link nav-link-secondary">
+          <i data-lucide="log-in" class="link-icon"></i>登录
+        </a>
+        <a href="/auth/register" class="nav-link nav-link-primary">
+          <i data-lucide="user-plus" class="link-icon"></i>注册试用
+        </a>
+      </div>
     {% endif %}
   </div>
 </nav>
-<main>
+
+<main class="app-main">
 {% block content %}{% endblock %}
 </main>
+
+<script>
+  lucide.createIcons();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,66 +1,120 @@
 {% extends "base.html" %}
-{% block title %}审核解析 — {{ paper.title }}{% endblock %}
+{% block title %}审核解析 - {{ paper.title }}{% endblock %}
 {% block content %}
-<div class="admin-layout">
+<section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
-    <a href="/admin">概览</a>
-    <a href="/admin/upload">上传试卷</a>
-    <a href="/admin/papers">试卷列表</a>
-    <a href="/admin/codes">激活码</a>
+    <a href="/admin/"><i data-lucide="bar-chart-3"></i>概览</a>
+    <a href="/admin/upload"><i data-lucide="upload-cloud"></i>上传试卷</a>
+    <a href="/admin/papers" class="active"><i data-lucide="file-text"></i>试卷列表</a>
+    <a href="/admin/codes"><i data-lucide="key-round"></i>激活码</a>
   </aside>
-  <div class="admin-content">
-    <h2>{{ paper.title }} <small>{{ paper.year }} {{ paper.province }} {{ paper.paper_type }}</small></h2>
-    {% if error %}
-      <div class="flash-error">{{ error }}</div>
-      <a href="/admin/upload">重新上传</a>
-    {% else %}
-      {% set missing = namespace(count=0) %}
-      {% for q in questions %}
-        {% if not q.answer or not q.explanation or (q.explanation or '')|length < 10 %}
-          {% set missing.count = missing.count + 1 %}
-        {% endif %}
-      {% endfor %}
-      <p>AI 解析出 {{ questions|length }} 道题目
-        {% if missing.count > 0 %}
-          <span style="color:#f48771;">（{{ missing.count }} 道缺答案或解析，请重点补充）</span>
-        {% endif %}
-      </p>
-      <div id="questions-editor">
-        {% for q in questions %}
-        <div class="edit-card" data-index="{{ loop.index0 }}">
-          <h3>
-            第 {{ q.question_num }} 题 — {{ q.q_type }}
-            {% if not q.answer %}
-              <span style="color:#f48771;font-size:12px;">⚠ 缺答案</span>
-            {% endif %}
-            {% if not q.explanation or (q.explanation or '')|length < 10 %}
-              <span style="color:#f4a371;font-size:12px;">⚠ 缺解析</span>
-            {% endif %}
-          </h3>
-          <label>题型</label>
-          <input type="text" name="q_type" value="{{ q.q_type }}">
-          <label>题干</label>
-          <textarea name="stem" rows="4">{{ q.stem }}</textarea>
-          <label>选项 (JSON)</label>
-          <textarea name="options" rows="2">{{ q.options | tojson }}</textarea>
-          <label>答案 {% if not q.answer %}<span style="color:#f48771;">（必填）</span>{% endif %}</label>
-          <input type="text" name="answer" value="{{ q.answer or '' }}" style="{% if not q.answer %}border-color:#f48771;{% endif %}">
-          <label>解析 {% if not q.explanation or (q.explanation or '')|length < 10 %}<span style="color:#f4a371;">（需补充）</span>{% endif %}</label>
-          <textarea name="explanation" rows="3" style="{% if not q.explanation or (q.explanation or '')|length < 10 %}border-color:#f4a371;{% endif %}">{{ q.explanation or '' }}</textarea>
-          <label>知识点（空格分隔）</label>
-          <input type="text" name="topics" value="{{ q.topics or '' }}">
-          <input type="hidden" name="question_num" value="{{ q.question_num }}">
-        </div>
-        {% endfor %}
+
+  <div class="admin-stage">
+    <header class="workspace-header">
+      <div>
+        <span class="section-kicker">Review Workspace</span>
+        <h1>{{ paper.title }}</h1>
+        <p>{{ paper.year }}年 · {{ paper.province }} · {{ paper.paper_type }}</p>
       </div>
-      <button id="confirm-btn" onclick="confirmQuestions('{{ paper.id }}')">确认入库</button>
-      <button id="reparse-btn" class="danger" onclick="reparseQuestions('{{ paper.id }}')">重新 AI 解析</button>
-      <button id="delete-btn" class="danger" onclick="deletePaper('{{ paper.id }}')">删除此试卷</button>
-      <div id="confirm-result"></div>
-    {% endif %}
+    </header>
+
+    <section class="workspace-panel admin-content">
+      {% if error %}
+        <div class="flash-error">
+          <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
+          <span>{{ error }}</span>
+        </div>
+        <a href="/admin/upload" class="nav-link nav-link-secondary">
+          <i data-lucide="refresh-ccw" class="link-icon"></i>重新上传
+        </a>
+      {% else %}
+        {% set missing = namespace(count=0) %}
+        {% for q in questions %}
+          {% if not q.answer or not q.explanation or (q.explanation or '')|length < 10 %}
+            {% set missing.count = missing.count + 1 %}
+          {% endif %}
+        {% endfor %}
+
+        <div class="flash-ok" style="justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;">
+          <span>
+            <i data-lucide="binary" style="width: 14px; height: 14px; vertical-align: middle; color:var(--blue-600); margin-right: 4px;"></i>
+            AI 已提取 <strong>{{ questions|length }}</strong> 道题目
+          </span>
+          {% if missing.count > 0 %}
+            <span style="color: var(--amber-500); font-weight: 700;">
+              <i data-lucide="triangle-alert" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i>
+              {{ missing.count }} 道题缺少答案或解析，请重点检查
+            </span>
+          {% endif %}
+        </div>
+
+        <div id="questions-editor">
+          {% for q in questions %}
+          <div class="edit-card" data-index="{{ loop.index0 }}">
+            <h3>
+              第 {{ q.question_num }} 题 · {{ q.q_type }}
+              {% if not q.answer %}
+                <span style="color:var(--red-500); font-size:12px; display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-weight: 700;">
+                  <span class="pulse-dot"></span>缺答案
+                </span>
+              {% endif %}
+              {% if not q.explanation or (q.explanation or '')|length < 10 %}
+                <span style="color:var(--amber-500); font-size:12px; display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-weight: 700;">
+                  <span class="pulse-dot warning"></span>缺解析
+                </span>
+              {% endif %}
+            </h3>
+
+            <div style="display: grid; grid-template-columns: 180px 1fr; gap: 16px; margin-bottom: 12px;">
+              <div>
+                <label>题型</label>
+                <input type="text" name="q_type" value="{{ q.q_type }}">
+              </div>
+              <div>
+                <label>知识点（空格分隔）</label>
+                <input type="text" name="topics" value="{{ q.topics or '' }}" placeholder="如 氧化还原反应 离子浓度比较">
+              </div>
+            </div>
+
+            <label>题干文本</label>
+            <textarea name="stem" rows="4">{{ q.stem }}</textarea>
+
+            <label>选项配置（JSON 数组格式，非选择题留空）</label>
+            <textarea name="options" rows="2" style="font-size: 12px;">{{ q.options | tojson }}</textarea>
+
+            <div style="display: grid; grid-template-columns: 160px 1fr; gap: 16px; margin-top: 12px;">
+              <div>
+                <label>参考答案{% if not q.answer %}<span style="color:var(--red-500);">（必填）</span>{% endif %}</label>
+                <input type="text" name="answer" value="{{ q.answer or '' }}">
+              </div>
+              <div>
+                <label>解题分析与详细解析{% if not q.explanation or (q.explanation or '')|length < 10 %}<span style="color:var(--amber-500);">（建议补充）</span>{% endif %}</label>
+                <textarea name="explanation" rows="3">{{ q.explanation or '' }}</textarea>
+              </div>
+            </div>
+
+            <input type="hidden" name="question_num" value="{{ q.question_num }}">
+          </div>
+          {% endfor %}
+        </div>
+
+        <div class="admin-actions" style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft);">
+          <button id="confirm-btn" onclick="confirmQuestions('{{ paper.id }}')" style="background: linear-gradient(180deg, #21b27a 0%, #0f9f6e 100%);">
+            <i data-lucide="check-circle" style="width:16px; height:16px;"></i>确认入库
+          </button>
+          <button id="reparse-btn" onclick="reparseQuestions('{{ paper.id }}')">
+            <i data-lucide="refresh-cw" style="width:16px; height:16px;"></i>重新 AI 解析
+          </button>
+          <button id="delete-btn" onclick="deletePaper('{{ paper.id }}')" style="background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%); margin-left: auto;">
+            <i data-lucide="trash-2" style="width:16px; height:16px;"></i>删除试卷
+          </button>
+        </div>
+        <div id="confirm-result" style="margin-top: 16px;"></div>
+      {% endif %}
+    </section>
   </div>
-</div>
+</section>
 <script>
 function confirmQuestions(paperId) {
   var questions = [];
@@ -84,14 +138,16 @@ function confirmQuestions(paperId) {
   });
 
   if (missing.length > 0) {
-    if (!confirm('以下题目缺少答案: 第' + missing.join(',') + '题。确定继续入库？')) {
+    if (!confirm('以下题目缺少答案: 第 ' + missing.join(',') + ' 题。确定继续入库？')) {
       return;
     }
   }
 
   var btn = document.getElementById('confirm-btn');
   btn.disabled = true;
-  btn.textContent = '入库中...';
+  btn.innerHTML = '<i data-lucide="loader" class="animate-spin" style="width:16px; height:16px;"></i> 正在入库...';
+  if (window.lucide) window.lucide.createIcons();
+
   fetch('/admin/review/' + paperId + '/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -101,32 +157,52 @@ function confirmQuestions(paperId) {
   .then(function(d) {
     var el = document.getElementById('confirm-result');
     el.textContent = d.msg;
-    el.style.color = d.ok ? '#4caf50' : '#f44336';
-    if (d.ok) { setTimeout(function() { location.href = '/admin/papers'; }, 2000); }
+    el.style.color = d.ok ? 'var(--green-500)' : 'var(--red-500)';
+    if (d.ok) {
+      setTimeout(function() { location.href = '/admin/papers'; }, 1500);
+    }
     btn.disabled = false;
-    btn.textContent = '确认入库';
+    btn.innerHTML = '<i data-lucide="check-circle" style="width:16px; height:16px;"></i> 确认入库';
+    if (window.lucide) window.lucide.createIcons();
   });
 }
 
 function reparseQuestions(paperId) {
-  if (!confirm('重新解析会丢失当前编辑的修改，确定重新解析？')) return;
+  if (!confirm('重新解析会丢失当前编辑内容，确定继续？')) return;
   var btn = document.getElementById('reparse-btn');
   btn.disabled = true;
-  btn.textContent = '解析中...';
+  btn.innerHTML = '<i data-lucide="loader" class="animate-spin" style="width:16px; height:16px;"></i> 解析中...';
+  if (window.lucide) window.lucide.createIcons();
+
   fetch('/admin/review/' + paperId + '/reparse', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok) { location.reload(); }
-      else { alert(d.msg); btn.disabled = false; btn.textContent = '重新 AI 解析'; }
+      else {
+        alert(d.msg);
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="refresh-cw" style="width:16px; height:16px;"></i> 重新 AI 解析';
+        if (window.lucide) window.lucide.createIcons();
+      }
     });
 }
 
 function deletePaper(paperId) {
   if (!confirm('确定删除？')) return;
+  var btn = document.getElementById('delete-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<i data-lucide="loader" class="animate-spin" style="width:16px; height:16px;"></i> 删除中...';
+  if (window.lucide) window.lucide.createIcons();
+
   fetch('/admin/review/' + paperId + '/delete', { method: 'POST' })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok) { location.href = '/admin/papers'; }
+      else {
+        btn.disabled = false;
+        btn.innerHTML = '<i data-lucide="trash-2" style="width:16px; height:16px;"></i> 删除试卷';
+        if (window.lucide) window.lucide.createIcons();
+      }
     });
 }
 </script>

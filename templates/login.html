@@ -2,18 +2,39 @@
 {% block title %}登录{% endblock %}
 {% block body_class %}auth-page{% endblock %}
 {% block content %}
-<div class="auth-container">
-  <h2>登录</h2>
-  {% with messages = get_flashed_messages(category_filter=['error']) %}
-  {% if messages %}<div class="flash-error">{{ messages[0] }}</div>{% endif %}
-  {% endwith %}
-  <form method="post">
-    <label>用户名</label>
-    <input type="text" name="username" required autocomplete="username">
-    <label>密码</label>
-    <input type="password" name="password" required autocomplete="current-password">
-    <button type="submit">登录</button>
-  </form>
-  <p class="auth-switch">没有账号？<a href="{{ url_for('auth.register') }}">去注册</a></p>
-</div>
+<section class="auth-shell">
+  <div class="auth-intro">
+    <span class="eyebrow">欢迎回来</span>
+    <h1>登录后继续检索高考化学真题</h1>
+    <p>保留你的使用状态、VIP 权限和后台入口，用同一账号在前台与管理端之间切换。</p>
+  </div>
+
+  <div class="auth-card">
+    <div class="auth-card-header">
+      <h2>登录账号</h2>
+      <p>输入用户名和密码进入题库工作台。</p>
+    </div>
+
+    {% with messages = get_flashed_messages(category_filter=['error']) %}
+    {% if messages %}
+      <div class="flash-error">
+        <i data-lucide="alert-circle"></i>
+        <span>{{ messages[0] }}</span>
+      </div>
+    {% endif %}
+    {% endwith %}
+
+    <form method="post" class="auth-form">
+      <label>用户名</label>
+      <input type="text" name="username" required placeholder="请输入用户名" autocomplete="username">
+      <label>密码</label>
+      <input type="password" name="password" required placeholder="请输入密码" autocomplete="current-password">
+      <button type="submit">
+        <i data-lucide="log-in" class="button-icon"></i>立即登录
+      </button>
+    </form>
+
+    <p class="auth-switch">还没有账号？<a href="{{ url_for('auth.register') }}">注册试用</a></p>
+  </div>
+</section>
 {% endblock %}

@@ -1,21 +1,57 @@
 {% extends "base.html" %}
 {% block title %}管理后台{% endblock %}
 {% block content %}
-<div class="admin-layout">
+<section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
-    <a href="/admin" class="active">概览</a>
-    <a href="/admin/upload">上传试卷</a>
-    <a href="/admin/papers">试卷列表</a>
-    <a href="/admin/codes">激活码</a>
+    <a href="/admin/" class="active">
+      <i data-lucide="bar-chart-3"></i>概览
+    </a>
+    <a href="/admin/upload">
+      <i data-lucide="upload-cloud"></i>上传试卷
+    </a>
+    <a href="/admin/papers">
+      <i data-lucide="file-text"></i>试卷列表
+    </a>
+    <a href="/admin/codes">
+      <i data-lucide="key-round"></i>激活码
+    </a>
   </aside>
-  <div class="admin-content">
-    <h2>概览</h2>
-    <div class="stats-grid">
-      <div class="stat-card"><h3>{{ stats.total_questions }}</h3><p>题目总数</p></div>
-      <div class="stat-card"><h3>{{ stats.total_papers }}</h3><p>试卷总数</p></div>
-      <div class="stat-card"><h3>{{ pending|length }}</h3><p>待审核</p></div>
-    </div>
+
+  <div class="admin-stage">
+    <header class="workspace-header">
+      <div>
+        <span class="section-kicker">Admin Workspace</span>
+        <h1>数据概览</h1>
+        <p>查看题库规模、试卷数量和当前待审核任务，作为后台工作入口。</p>
+      </div>
+    </header>
+
+    <section class="workspace-panel admin-content">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>{{ stats.total_questions }}</h3>
+            <i data-lucide="help-circle" style="color: var(--blue-600); width: 20px; height: 20px;"></i>
+          </div>
+          <p>题目总数</p>
+        </div>
+        <div class="stat-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>{{ stats.total_papers }}</h3>
+            <i data-lucide="book-open" style="color: var(--green-500); width: 20px; height: 20px;"></i>
+          </div>
+          <p>试卷总数</p>
+        </div>
+        <div class="stat-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h3>{{ pending|length }}</h3>
+            <i data-lucide="clock-3" style="color: var(--amber-500); width: 20px; height: 20px;"></i>
+          </div>
+          <p>待审核试卷</p>
+        </div>
+      </div>
+    </section>
   </div>
-</div>
+</section>
 {% endblock %}
