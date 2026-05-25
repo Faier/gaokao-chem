@@ -27,7 +27,7 @@ SECRET_KEY = _get_secret_key()
 
 DEEPSEEK_API_KEY = os.environ.get(
     'DEEPSEEK_API_KEY',
-    'sk-66681e1b197e4de2888b2fbc7f17ec48'
+    '111'
 )
 DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
 DEEPSEEK_MODEL = 'deepseek-chat'
