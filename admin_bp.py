@@ -9,7 +9,12 @@ from models import (
     get_all_papers, update_paper_status, delete_paper,
     generate_codes, get_all_codes, get_stats, get_db
 )
-from parser import parse_pdf_to_questions, extract_text_from_pdf, call_deepseek
+from parser import (
+    call_mimo,
+    extract_text_from_document,
+    get_document_kind,
+    parse_document_to_questions,
+)
 from config import UPLOAD_DIR
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
@@ -112,12 +117,16 @@ def upload_page():
 @admin_bp.route('/upload/analyze', methods=['POST'])
 @admin_required
 def upload_analyze():
-    """Step 1: Upload PDF, parse filename, AI fallback for metadata."""
-    file = request.files.get('pdf')
+    """Step 1: Upload document, parse filename, AI fallback for metadata."""
+    file = request.files.get('document') or request.files.get('pdf')
     if not file:
-        return jsonify({'ok': False, 'msg': '请选择 PDF 文件'}), 400
+        return jsonify({'ok': False, 'msg': '请选择 PDF、DOC 或 DOCX 文件'}), 400
 
-    filename = file.filename or 'upload.pdf'
+    filename = os.path.basename(file.filename or 'upload.pdf')
+    filename = filename.replace('\\', '').replace('/', '').strip() or 'upload.pdf'
+    if not get_document_kind(filename):
+        return jsonify({'ok': False, 'msg': '仅支持 PDF、DOC、DOCX 文档'}), 400
+
     filepath = os.path.join(UPLOAD_DIR, filename)
     file.save(filepath)
 
@@ -126,9 +135,9 @@ def upload_analyze():
 
     # 2. If filename didn't give good results, try AI
     if not meta['year'] or not meta['province']:
-        text = extract_text_from_pdf(filepath)
+        text = extract_text_from_document(filepath)
         if text:
-            result = call_deepseek(METADATA_PROMPT, text[:3000])
+            result = call_mimo(text[:3000], system_prompt=METADATA_PROMPT)
             if result and 'year' in result:
                 meta['year'] = meta['year'] or str(result.get('year', ''))
                 meta['province'] = meta['province'] or str(result.get('province', ''))
@@ -138,8 +147,8 @@ def upload_analyze():
         else:
             text_preview = ''
     else:
-        # Filename parsed successfully — still extract text for preview
-        text = extract_text_from_pdf(filepath)
+        # Filename parsed successfully - still extract text for preview
+        text = extract_text_from_document(filepath)
         text_preview = text[:500] if text else '（文字提取失败，但文件名已识别）'
 
     if not meta['year']:
@@ -178,7 +187,7 @@ def upload_confirm():
     )
 
     # Parse questions via AI
-    result = parse_pdf_to_questions(filepath)
+    result = parse_document_to_questions(filepath)
     if 'error' not in result:
         # Store parse result in DB for review page
         conn = get_db()
@@ -211,7 +220,7 @@ def review(paper_id):
 
     if not questions and not error:
         # Parse hasn't happened yet, or failed — try now
-        result = parse_pdf_to_questions(paper['file_path'])
+        result = parse_document_to_questions(paper['file_path'])
         if 'error' in result:
             error = result['error']
         else:
@@ -236,7 +245,7 @@ def review_reparse(paper_id):
     if not paper:
         return jsonify({'error': 'not found'}), 404
 
-    result = parse_pdf_to_questions(paper['file_path'])
+    result = parse_document_to_questions(paper['file_path'])
     if 'error' in result:
         return jsonify({'ok': False, 'msg': result['error']}), 500
 

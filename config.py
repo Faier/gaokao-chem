@@ -25,12 +25,36 @@ def _get_secret_key():
 
 SECRET_KEY = _get_secret_key()
 
-DEEPSEEK_API_KEY = os.environ.get(
-    'DEEPSEEK_API_KEY',
-    '111'
+
+def _read_secret_file(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            return f.read().strip()
+    except OSError:
+        return ''
+
+
+MIMO_API_KEY_FILE = os.environ.get(
+    'MIMO_API_KEY_FILE',
+    os.path.join(DATA_DIR, '.mimo_api_key')
 )
-DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions'
-DEEPSEEK_MODEL = 'deepseek-chat'
+MIMO_API_KEY = (
+    os.environ.get('MIMO_API_KEY')
+    or os.environ.get('OPENAI_API_KEY')
+    or os.environ.get('DEEPSEEK_API_KEY')
+    or _read_secret_file(MIMO_API_KEY_FILE)
+    or ''
+)
+MIMO_API_URL = os.environ.get(
+    'MIMO_API_URL',
+    'https://token-plan-cn.xiaomimimo.com/v1/chat/completions'
+)
+MIMO_MODEL = os.environ.get('MIMO_MODEL', 'mimo-v2.5')
+
+# Backward-compatible names used by older code paths.
+DEEPSEEK_API_KEY = MIMO_API_KEY
+DEEPSEEK_API_URL = MIMO_API_URL
+DEEPSEEK_MODEL = MIMO_MODEL
 
 # VIP 配置
 TRIAL_HOURS = 24          # 试用时长（小时）

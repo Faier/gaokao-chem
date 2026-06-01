@@ -1,6 +1,7 @@
 __pycache__/
 .idea/
 data/chem.db
+data/.mimo_api_key
 data/papers/
 *.pyc
 paper_urls*.json

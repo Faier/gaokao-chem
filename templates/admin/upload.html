@@ -14,16 +14,16 @@
     <header class="workspace-header">
       <div>
         <span class="section-kicker">Upload Workflow</span>
-        <h1>上传 PDF 并识别试卷信息</h1>
-        <p>先上传题目 PDF，再确认年份、省份和试卷类型，随后进入 AI 解析审核流程。</p>
+        <h1>上传文档并识别试卷信息</h1>
+        <p>支持 PDF、DOC、DOCX 试卷文档；确认年份、省份和试卷类型后进入 AI 解析审核流程。</p>
       </div>
     </header>
 
     <section class="workspace-panel admin-content">
       <div id="step1">
         <i data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--blue-600); margin-bottom: 16px;"></i>
-        <p style="color: var(--text-2); font-size: 15px; margin-bottom: 14px;">请选择要导入的化学试卷 PDF 文件</p>
-        <input type="file" id="pdf-file" accept=".pdf">
+        <p style="color: var(--text-2); font-size: 15px; margin-bottom: 14px;">请选择要导入的化学试卷文档</p>
+        <input type="file" id="pdf-file" accept=".pdf,.doc,.docx">
         <button id="analyze-btn" onclick="analyzePDF()" style="margin: 0 auto;">
           <i data-lucide="scan-search" class="button-icon"></i>自动识别试卷信息
         </button>
@@ -79,7 +79,7 @@ var filename = '';
 
 function analyzePDF() {
   var file = document.getElementById('pdf-file').files[0];
-  if (!file) { alert('请先选择 PDF 文件'); return; }
+  if (!file) { alert('请先选择 PDF、DOC 或 DOCX 文件'); return; }
 
   var btn = document.getElementById('analyze-btn');
   var status = document.getElementById('analyze-status');
@@ -93,7 +93,7 @@ function analyzePDF() {
   if (window.lucide) window.lucide.createIcons();
 
   var fd = new FormData();
-  fd.append('pdf', file);
+  fd.append('document', file);
 
   fetch('/admin/upload/analyze', { method: 'POST', body: fd })
     .then(function(r) { return r.json(); })
