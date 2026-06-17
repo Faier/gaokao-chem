@@ -1,9 +1,10 @@
 import json
+import os
 from functools import wraps
 from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 
-from models import get_question, get_paper, get_filter_counts
+from models import get_question, get_paper, get_filter_counts, get_question_images
 from search import search_questions
 
 query_bp = Blueprint('query', __name__, url_prefix='/api')
@@ -48,6 +49,10 @@ def api_question(q_id):
         question['options'] = []
     paper = get_paper(question['paper_id'])
     question['paper'] = paper
+    question['images'] = [
+        {'seq': image['seq'], 'url': '/images/' + os.path.basename(image['file_path'])}
+        for image in get_question_images(q_id)
+    ]
     return jsonify(question)
 
 

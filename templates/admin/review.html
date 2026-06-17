@@ -20,14 +20,28 @@
     </header>
 
     <section class="workspace-panel admin-content">
-      {% if error %}
+      {% if paper.status in ['pending', 'parsing'] %}
+        <div id="parsing-loading-state" style="text-align: center; padding: 48px 20px;">
+          <i data-lucide="cpu" class="animate-spin" style="width: 48px; height: 48px; color: var(--blue-600); margin: 0 auto 16px; display: block;"></i>
+          <h2 style="font-size: 20px; margin-bottom: 8px;">AI 正在解析题目...</h2>
+          <p style="color: var(--text-3); font-size: 14px; margin-bottom: 20px;">这可能需要 1~2 分钟，请不要关闭此页面，解析完成后会自动刷新。</p>
+          <div class="loading-bar" style="max-width: 300px; margin: 0 auto;">
+            <div class="loading-bar-fill"></div>
+          </div>
+        </div>
+      {% elif error %}
         <div class="flash-error">
           <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
           <span>{{ error }}</span>
         </div>
-        <a href="/admin/upload" class="nav-link nav-link-secondary">
-          <i data-lucide="refresh-ccw" class="link-icon"></i>重新上传
-        </a>
+        <div class="admin-actions">
+          <button id="reparse-btn" onclick="reparseQuestions('{{ paper.id }}')">
+            <i data-lucide="refresh-cw" style="width:16px; height:16px;"></i>重新 AI 解析
+          </button>
+          <button id="delete-btn" onclick="deletePaper('{{ paper.id }}')" style="background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%); margin-left: auto;">
+            <i data-lucide="trash-2" style="width:16px; height:16px;"></i>删除试卷
+          </button>
+        </div>
       {% else %}
         {% set missing = namespace(count=0) %}
         {% for q in questions %}
@@ -205,5 +219,26 @@ function deletePaper(paperId) {
       }
     });
 }
+{% if paper.status in ['pending', 'parsing'] %}
+function pollStatus() {
+  fetch('/admin/paper/{{ paper.id }}/status')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        if (d.status === 'parsed' || d.status === 'failed') {
+          location.reload();
+        } else {
+          setTimeout(pollStatus, 2000);
+        }
+      } else {
+        setTimeout(pollStatus, 4000);
+      }
+    })
+    .catch(function() {
+      setTimeout(pollStatus, 4000);
+    });
+}
+pollStatus();
+{% endif %}
 </script>
 {% endblock %}

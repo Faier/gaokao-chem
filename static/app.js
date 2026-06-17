@@ -142,6 +142,18 @@ function renderResults(data) {
   if (window.lucide) {
     window.lucide.createIcons();
   }
+
+  if (window.renderMathInElement) {
+    renderMathInElement(container, {
+      delimiters: [
+        {left: '$$', right: '$$', display: true},
+        {left: '$', right: '$', display: false},
+        {left: '\\(', right: '\\)', display: false},
+        {left: '\\[', right: '\\]', display: true}
+      ],
+      throwOnError: false
+    });
+  }
 }
 
 function renderCard(q) {
@@ -214,7 +226,15 @@ function showDetail(qId) {
       
       var stem = formatChemistryFormulas(escapeHtml(q.stem || ''));
       html += '<div class="detail-stem">' + stem + '</div>';
-      
+
+      if (q.images && q.images.length) {
+        html += '<div class="question-images">';
+        q.images.forEach(function(img) {
+          html += '<img src="' + escapeHtml(img.url) + '" alt="题目图片' + escapeHtml(String(img.seq || '')) + '" style="max-width:100%; border:1px solid var(--line-soft); border-radius:8px; margin:8px 0; display:block;">';
+        });
+        html += '</div>';
+      }
+
       if (q.options && q.options.length) {
         html += '<div class="detail-options"><ul>';
         q.options.forEach(function(o) {
@@ -250,6 +270,18 @@ function showDetail(qId) {
       
       if (window.lucide) {
         window.lucide.createIcons();
+      }
+
+      if (window.renderMathInElement) {
+        renderMathInElement(document.getElementById('modal-body'), {
+          delimiters: [
+            {left: '$$', right: '$$', display: true},
+            {left: '$', right: '$', display: false},
+            {left: '\\(', right: '\\)', display: false},
+            {left: '\\[', right: '\\]', display: true}
+          ],
+          throwOnError: false
+        });
       }
     });
 }

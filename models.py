@@ -1,4 +1,5 @@
 import sqlite3
+import os
 import uuid
 import jieba
 from datetime import datetime, timedelta
@@ -9,7 +10,44 @@ from config import DB_PATH, TRIAL_HOURS
 jieba.setLogLevel(20)
 
 
+class FlaskConnectionProxy:
+    """A proxy wrapper for sqlite3.Connection inside Flask request context.
+    
+    It prevents helper functions from closing the connection prematurely,
+    delegates all attribute/method calls, and supports context manager protocol.
+    """
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __enter__(self):
+        return self._conn.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return self._conn.__exit__(exc_type, exc_val, exc_tb)
+
+    def close(self):
+        # Prevent manual closing inside helper functions inside Flask context.
+        # The connection will be popped and closed during app teardown.
+        pass
+
+
 def get_db():
+    try:
+        from flask import g, has_app_context
+        if has_app_context():
+            if 'db' not in g:
+                g.db = sqlite3.connect(DB_PATH)
+                g.db.row_factory = sqlite3.Row
+                g.db.execute("PRAGMA journal_mode=WAL")
+                g.db.execute("PRAGMA foreign_keys=ON")
+            return FlaskConnectionProxy(g.db)
+    except ImportError:
+        pass
+
+    # CLI/test fallback connection
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -105,6 +143,15 @@ def init_db():
             INSERT INTO questions_fts(rowid, stem, answer, explanation, topics)
             VALUES (new.rowid, new.stem, new.answer, new.explanation, new.topics);
         END;
+
+        CREATE TABLE IF NOT EXISTS question_images (
+            id          TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+            paper_id    TEXT NOT NULL,
+            seq         INTEGER NOT NULL,
+            file_path   TEXT NOT NULL,
+            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     # Migration: add status column if missing (for DBs created before commercial redesign)
     try:
@@ -192,9 +239,36 @@ def update_paper_file(paper_id, file_path, file_size=None, page_count=None):
 
 def delete_paper(paper_id):
     conn = get_db()
+    row = conn.execute("SELECT file_path FROM papers WHERE id=?", (paper_id,)).fetchone()
+    file_path = row['file_path'] if row else None
+
+    # Collect image file paths before deleting records
+    img_rows = conn.execute(
+        "SELECT file_path FROM question_images WHERE paper_id=?", (paper_id,)
+    ).fetchall()
+    image_paths = [r['file_path'] for r in img_rows]
+
     conn.execute("DELETE FROM questions WHERE paper_id=?", (paper_id,))
     conn.execute("DELETE FROM papers WHERE id=?", (paper_id,))
     conn.commit()
+
+    # Remove image files from disk
+    for img_path in image_paths:
+        if os.path.exists(img_path):
+            try:
+                os.remove(img_path)
+            except OSError:
+                pass
+
+    if file_path:
+        still_used = conn.execute(
+            "SELECT 1 FROM papers WHERE file_path=? LIMIT 1", (file_path,)
+        ).fetchone()
+        if not still_used and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
     conn.close()
 
 
@@ -247,6 +321,43 @@ def get_stats():
         'year_min': years[0],
         'year_max': years[1]
     }
+
+
+# ── Question image helpers ──
+
+def insert_question_image(question_id, paper_id, seq, file_path):
+    """Insert an image record linking a question to a saved image file."""
+    conn = get_db()
+    img_id = uuid.uuid4().hex
+    conn.execute("""
+        INSERT INTO question_images (id, question_id, paper_id, seq, file_path)
+        VALUES (?, ?, ?, ?, ?)
+    """, (img_id, question_id, paper_id, seq, file_path))
+    conn.commit()
+    conn.close()
+    return img_id
+
+
+def get_question_images(question_id):
+    """Return image records for a question, ordered by sequence number."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM question_images WHERE question_id = ? ORDER BY seq",
+        (question_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_paper_image_paths(paper_id):
+    """Return all image file paths for a paper, ordered by seq."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT file_path, seq FROM question_images WHERE paper_id = ? ORDER BY seq",
+        (paper_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 def get_filter_options():

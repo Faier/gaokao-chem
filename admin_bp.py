@@ -1,12 +1,14 @@
 import json
 import os
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, render_template, request, jsonify, current_app, send_from_directory
 from flask_login import login_required, current_user
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor
 
 from models import (
     insert_paper, insert_question, get_paper, get_paper_questions,
     get_all_papers, update_paper_status, delete_paper,
+    insert_question_image, get_question_images,
     generate_codes, get_all_codes, get_stats, get_db
 )
 from parser import (
@@ -14,8 +16,40 @@ from parser import (
     extract_text_from_document,
     get_document_kind,
     parse_document_to_questions,
+    save_images_to_disk,
 )
-from config import UPLOAD_DIR
+from config import UPLOAD_DIR, DATA_DIR
+
+executor = ThreadPoolExecutor(max_workers=4)
+
+
+def async_parse_task(app, paper_id, filepath):
+    with app.app_context():
+        try:
+            update_paper_status(paper_id, 'parsing')
+            result = parse_document_to_questions(filepath)
+            conn = get_db()
+            if 'error' not in result:
+                conn.execute(
+                    "UPDATE papers SET parse_result=?, status='parsed' WHERE id=?",
+                    (json.dumps(result, ensure_ascii=False), paper_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE papers SET parse_result=?, status='failed' WHERE id=?",
+                    (json.dumps(result, ensure_ascii=False), paper_id)
+                )
+            conn.commit()
+        except Exception as e:
+            try:
+                conn = get_db()
+                conn.execute(
+                    "UPDATE papers SET parse_result=?, status='failed' WHERE id=?",
+                    (json.dumps({"error": f"后台解析异常: {str(e)}"}, ensure_ascii=False), paper_id)
+                )
+                conn.commit()
+            except Exception:
+                pass
 
 admin_bp = Blueprint('admin', __name__, url_prefix='/admin')
 
@@ -122,8 +156,8 @@ def upload_analyze():
     if not file:
         return jsonify({'ok': False, 'msg': '请选择 PDF、DOC 或 DOCX 文件'}), 400
 
-    filename = os.path.basename(file.filename or 'upload.pdf')
-    filename = filename.replace('\\', '').replace('/', '').strip() or 'upload.pdf'
+    from werkzeug.utils import secure_filename
+    filename = secure_filename(file.filename or 'upload.pdf') or 'upload.pdf'
     if not get_document_kind(filename):
         return jsonify({'ok': False, 'msg': '仅支持 PDF、DOC、DOCX 文档'}), 400
 
@@ -168,7 +202,7 @@ def upload_analyze():
 @admin_bp.route('/upload/confirm', methods=['POST'])
 @admin_required
 def upload_confirm():
-    """Step 2: Save paper with user-confirmed metadata, then parse questions."""
+    """Step 2: Save paper with user-confirmed metadata, then start async parsing task."""
     year = request.form.get('year', type=int)
     province = request.form.get('province', '').strip()
     paper_type = request.form.get('paper_type', '').strip()
@@ -186,19 +220,24 @@ def upload_confirm():
         file_size=os.path.getsize(filepath)
     )
 
-    # Parse questions via AI
-    result = parse_document_to_questions(filepath)
-    if 'error' not in result:
-        # Store parse result in DB for review page
-        conn = get_db()
-        conn.execute(
-            "UPDATE papers SET parse_result=? WHERE id=?",
-            (json.dumps(result['questions'], ensure_ascii=False), paper_id)
-        )
-        conn.commit()
-        conn.close()
+    # Start async parse task
+    app = current_app._get_current_object()
+    executor.submit(async_parse_task, app, paper_id, filepath)
 
-    return jsonify({'ok': True, 'paper_id': paper_id, 'msg': '上传成功，正在解析...'})
+    return jsonify({'ok': True, 'paper_id': paper_id, 'msg': '试卷信息已确认，后台 AI 正在解析中...'})
+
+
+@admin_bp.route('/paper/<paper_id>/status')
+@admin_required
+def paper_status(paper_id):
+    paper = get_paper(paper_id)
+    if not paper:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify({
+        'ok': True,
+        'status': paper.get('status', 'pending'),
+        'has_result': bool(paper.get('parse_result'))
+    })
 
 
 @admin_bp.route('/review/<paper_id>')
@@ -212,27 +251,24 @@ def review(paper_id):
     questions = []
     error = None
 
-    if paper.get('parse_result'):
-        try:
-            questions = json.loads(paper['parse_result'])
-        except json.JSONDecodeError:
-            error = '解析结果数据损坏'
-
-    if not questions and not error:
-        # Parse hasn't happened yet, or failed — try now
-        result = parse_document_to_questions(paper['file_path'])
-        if 'error' in result:
-            error = result['error']
+    if paper.get('status') == 'failed':
+        if paper.get('parse_result'):
+            try:
+                res = json.loads(paper['parse_result'])
+                error = res.get('error', '解析失败，未获得有效结果')
+            except Exception:
+                error = '解析失败且数据异常'
         else:
-            questions = result.get('questions', [])
-            # Store for next time
-            conn = get_db()
-            conn.execute(
-                "UPDATE papers SET parse_result=? WHERE id=?",
-                (json.dumps(questions, ensure_ascii=False), paper_id)
-            )
-            conn.commit()
-            conn.close()
+            error = '解析失败'
+    elif paper.get('status') in ['parsed', 'confirmed']:
+        if paper.get('parse_result'):
+            try:
+                parsed = json.loads(paper['parse_result'])
+                questions = parsed.get('questions', []) if isinstance(parsed, dict) else parsed
+            except json.JSONDecodeError:
+                error = '解析结果数据损坏'
+        else:
+            error = '解析已完成，但无结果数据'
 
     return render_template('admin/review.html', paper=paper, questions=questions, error=error)
 
@@ -240,24 +276,20 @@ def review(paper_id):
 @admin_bp.route('/review/<paper_id>/reparse', methods=['POST'])
 @admin_required
 def review_reparse(paper_id):
-    """Force re-parse paper questions (discards existing parse result)."""
+    """Force re-parse paper questions asynchronously."""
     paper = get_paper(paper_id)
     if not paper:
         return jsonify({'error': 'not found'}), 404
 
-    result = parse_document_to_questions(paper['file_path'])
-    if 'error' in result:
-        return jsonify({'ok': False, 'msg': result['error']}), 500
-
-    questions = result.get('questions', [])
+    # Reset status and clear old result
     conn = get_db()
-    conn.execute(
-        "UPDATE papers SET parse_result=? WHERE id=?",
-        (json.dumps(questions, ensure_ascii=False), paper_id)
-    )
+    conn.execute("UPDATE papers SET parse_result=NULL, status='pending' WHERE id=?", (paper_id,))
     conn.commit()
-    conn.close()
-    return jsonify({'ok': True, 'msg': f'重新解析完成，{len(questions)} 道题目'})
+
+    app = current_app._get_current_object()
+    executor.submit(async_parse_task, app, paper_id, paper['file_path'])
+
+    return jsonify({'ok': True, 'msg': '已重新提交解析任务，请等待后台完成...'})
 
 
 @admin_bp.route('/review/<paper_id>/confirm', methods=['POST'])
@@ -270,10 +302,22 @@ def review_confirm(paper_id):
 
     data = request.get_json()
     questions = data.get('questions', [])
+    parsed = {}
+    if paper.get('parse_result'):
+        try:
+            parsed = json.loads(paper['parse_result'])
+        except json.JSONDecodeError:
+            parsed = {}
+    saved_images = save_images_to_disk(
+        parsed.get('images', []),
+        paper_id,
+        os.path.join(DATA_DIR, 'images'),
+    )
+    image_paths_by_seq = {seq: path for seq, path in saved_images}
 
     for q in questions:
         options_json = json.dumps(q.get('options', []), ensure_ascii=False)
-        insert_question(
+        question_id = insert_question(
             paper_id=paper_id,
             year=paper['year'],
             province=paper['province'],
@@ -286,6 +330,12 @@ def review_confirm(paper_id):
             explanation=q.get('explanation', ''),
             topics=q.get('topics', ''),
         )
+        seen_refs = set()
+        for ref in q.get('image_refs') or []:
+            if not isinstance(ref, int) or ref in seen_refs or ref not in image_paths_by_seq:
+                continue
+            seen_refs.add(ref)
+            insert_question_image(question_id, paper_id, ref, image_paths_by_seq[ref])
 
     update_paper_status(paper_id, 'confirmed')
     return jsonify({'ok': True, 'msg': f'已入库 {len(questions)} 道题目'})

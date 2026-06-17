@@ -47,9 +47,9 @@ MIMO_API_KEY = (
 )
 MIMO_API_URL = os.environ.get(
     'MIMO_API_URL',
-    'https://token-plan-cn.xiaomimimo.com/v1/chat/completions'
+    'https://ark.cn-beijing.volces.com/api/coding/v1/chat/completions'
 )
-MIMO_MODEL = os.environ.get('MIMO_MODEL', 'mimo-v2.5')
+MIMO_MODEL = os.environ.get('MIMO_MODEL', 'kimi-k2.6')
 
 # Backward-compatible names used by older code paths.
 DEEPSEEK_API_KEY = MIMO_API_KEY

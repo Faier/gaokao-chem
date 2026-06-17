@@ -1,5 +1,4 @@
-"""Keyword search with jieba tokenization for Chinese text."""
-
+import re
 import json
 import jieba
 from models import get_db
@@ -8,7 +7,7 @@ jieba.setLogLevel(20)
 
 
 def search_questions(keyword='', page=1, size=15, year=None, province=None, q_type=None):
-    """Paginated question search with jieba-tokenized LIKE matching and filters."""
+    """Paginated question search with jieba-tokenized FTS5 MATCH and filters."""
     conn = get_db()
 
     where_parts = []
@@ -16,15 +15,15 @@ def search_questions(keyword='', page=1, size=15, year=None, province=None, q_ty
 
     if keyword and keyword.strip():
         tokens = [t.strip() for t in jieba.cut(keyword) if len(t.strip()) >= 1]
-        if tokens:
-            like_parts = []
-            for token in tokens:
-                like_parts.append(
-                    "(q.stem LIKE ? OR q.answer LIKE ? OR q.explanation LIKE ? OR q.topics LIKE ?)"
-                )
-                pattern = '%' + token.replace('%', '\\%') + '%'
-                params.extend([pattern, pattern, pattern, pattern])
-            where_parts.append("(" + " AND ".join(like_parts) + ")")
+        clean_tokens = []
+        for t in tokens:
+            cleaned = re.sub(r'[^\w]', '', t)
+            if cleaned:
+                clean_tokens.append(cleaned)
+        if clean_tokens:
+            fts_query = " ".join(clean_tokens)
+            where_parts.append("q.rowid IN (SELECT rowid FROM questions_fts WHERE questions_fts MATCH ?)")
+            params.append(fts_query)
 
     if year:
         where_parts.append("q.year = ?")

@@ -56,11 +56,16 @@
                     <i data-lucide="check-square" class="link-icon"></i>开始审核
                   </a>
                 {% else %}
-                  <span style="font-size: 13px; color: var(--text-3);">
+                  <span style="font-size: 13px; color: var(--text-3); margin-right: 8px;">
                     <i data-lucide="lock" style="width: 11px; height: 11px; vertical-align: middle;"></i>
                     已确认
                   </span>
                 {% endif %}
+                <button type="button" class="nav-link nav-link-secondary delete-paper-btn"
+                        data-id="{{ p.id }}" data-title="{{ p.title }}"
+                        style="min-height: 36px; padding: 0 12px; margin-left: 6px; color: #dc2626;">
+                  <i data-lucide="trash-2" class="link-icon" style="width: 14px; height: 14px;"></i>删除
+                </button>
               </td>
             </tr>
           {% endfor %}
@@ -70,4 +75,37 @@
     </section>
   </div>
 </section>
+<script>
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.delete-paper-btn');
+  if (!btn) return;
+  var paperId = btn.dataset.id;
+  var title = btn.dataset.title || '';
+  if (!confirm('确定删除试卷「' + title + '」？\n此操作会同时删除已解析的题目和上传的源文件，且不可恢复。')) return;
+
+  var origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '删除中...';
+
+  fetch('/admin/review/' + paperId + '/delete', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d && d.ok) {
+        var row = btn.closest('tr');
+        if (row) row.parentNode.removeChild(row);
+      } else {
+        alert('删除失败：' + ((d && d.msg) || '未知错误'));
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+        if (window.lucide) window.lucide.createIcons();
+      }
+    })
+    .catch(function(err) {
+      alert('删除失败：' + err);
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+      if (window.lucide) window.lucide.createIcons();
+    });
+});
+</script>
 {% endblock %}
