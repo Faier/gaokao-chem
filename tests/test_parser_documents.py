@@ -588,6 +588,33 @@ class DocumentParserTests(unittest.TestCase):
         self.assertEqual(result["images"], images)
         self.assertEqual(result["image_source"], "DOCX embedded images")
 
+    def test_normalize_parse_result_filters_invalid_fields(self):
+        result = parser.normalize_parse_result({
+            "questions": [
+                {"question_num": 2, "options": "ABCD", "image_refs": [1, 99, "x"], "stem": "题干"},
+                {"question_num": None, "stem": "bad"},
+            ]
+        }, image_count=2)
+
+        self.assertEqual(len(result["questions"]), 1)
+        self.assertEqual(result["questions"][0]["options"], [])
+        self.assertEqual(result["questions"][0]["image_refs"], [1])
+
+    def test_question_block_parse_retries_failed_blocks_once(self):
+        text = "1. 第一题题干内容足够长用于切块，并包含更多文字保证长度达标\n2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标"
+        calls = []
+
+        def fake_call(block, image_urls=None, retry=True):
+            calls.append(block)
+            if block.startswith("2.") and calls.count(block) == 1:
+                return {"error": "temporary"}
+            return {"questions": [{"question_num": int(block[0]), "stem": block}]}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            result = parser.parse_question_blocks_with_mimo(text)
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [1, 2])
+        self.assertEqual(calls.count("2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标"), 2)
 
 if __name__ == "__main__":
     unittest.main()

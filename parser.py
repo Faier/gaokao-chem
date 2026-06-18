@@ -520,6 +520,29 @@ def chunk_items(items, chunk_size):
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
+def normalize_parse_result(result, image_count=0):
+    """Drop unusable questions and sanitize fields the review UI depends on."""
+    if not result or "questions" not in result:
+        return result
+
+    questions = []
+    for question in result.get("questions", []):
+        if question.get("question_num") is None:
+            continue
+        if not isinstance(question.get("options", []), list):
+            question["options"] = []
+        image_refs = []
+        for ref in question.get("image_refs", []):
+            if type(ref) is int and 1 <= ref <= image_count and ref not in image_refs:
+                image_refs.append(ref)
+        if image_refs:
+            question["image_refs"] = image_refs
+        else:
+            question.pop("image_refs", None)
+        questions.append(question)
+    result["questions"] = questions
+    return result
+
 def merge_question_batches(batch_results):
     """Merge per-batch parse results, deduplicating by question_num.
 
@@ -565,6 +588,8 @@ def parse_question_blocks_with_mimo(text):
         logger.info("mimo_question_block start index=%s total=%s chars=%s", index, len(blocks), len(block))
         block_start = time.perf_counter()
         result = call_mimo(block, image_urls=None, retry=False)
+        if result and "error" in result:
+            result = call_mimo(block, image_urls=None, retry=False)
         logger.info(
             "mimo_question_block done index=%s total=%s chars=%s elapsed=%.2fs error=%s",
             index,
@@ -596,7 +621,7 @@ def parse_question_blocks_with_mimo(text):
 
     if not batch_results:
         return None
-    return merge_question_batches(batch_results)
+    return normalize_parse_result(merge_question_batches(batch_results))
 
 
 def merge_image_annotations(text_result, annotation_results, image_count):
@@ -761,7 +786,7 @@ def call_mimo_with_image_batches(paper_text, image_urls, batch_size=IMAGE_BATCH_
             if res:
                 batch_results.append(res)
 
-    return merge_question_batches(batch_results)
+    return normalize_parse_result(merge_question_batches(batch_results))
 
 
 def call_deepseek(paper_text, retry=True):
@@ -933,6 +958,7 @@ def parse_document_to_questions(filepath):
             time.perf_counter() - image_ai_start,
         )
 
+    result = normalize_parse_result(result, len(image_urls))
     questions = result.get("questions", [])
     logger.info(
         "parse_document done file=%s kind=%s text_chars=%s images=%s batches=%s questions=%s elapsed=%.2fs",
