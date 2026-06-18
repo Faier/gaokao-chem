@@ -16,6 +16,11 @@ from config import MIMO_API_KEY, MIMO_API_URL, MIMO_MODEL
 
 logger = logging.getLogger(__name__)
 
+IMAGE_MAX_DIM = 640
+IMAGE_JPEG_QUALITY = 50
+QUESTION_BLOCKS_FIRST_THRESHOLD = 6
+QUESTION_BLOCK_WORKERS = 3
+
 try:
     import pdfplumber
     HAS_PDFPLUMBER = True
@@ -47,7 +52,7 @@ def _natural_sort_key(name):
             for s in re.split(r"(\d+)", name)]
 
 
-def _compress_image_to_jpeg_bytes(data, max_dim=1024, quality=75):
+def _compress_image_to_jpeg_bytes(data, max_dim=IMAGE_MAX_DIM, quality=IMAGE_JPEG_QUALITY):
     """Resize+recompress to JPEG to keep payloads small.
 
     Returns (bytes, mime). Falls back to (original_data, None) if PIL is missing
@@ -489,6 +494,10 @@ def call_mimo(paper_text, image_urls=None, system_prompt=EXTRACTION_PROMPT, retr
         if retry:
             return call_mimo(paper_text[:20000], image_urls=None, system_prompt=system_prompt, retry=False)
         return {"error": "JSON parse failed"}
+    except requests.Timeout as e:
+        if retry:
+            return call_mimo(paper_text[:20000], image_urls=None, system_prompt=system_prompt, retry=False)
+        return {"error": f"API call timed out after {MIMO_TIMEOUT_SECONDS}s: {e}"}
     except (KeyError, requests.RequestException) as e:
         return {"error": f"API call failed: {e}"}
 
@@ -528,6 +537,66 @@ def merge_question_batches(batch_results):
                 order.append(question_num)
             by_num[question_num] = question
     return {"questions": [by_num[num] for num in sorted(order)]}
+
+
+def split_text_into_question_blocks(text):
+    """Split extracted paper text into coarse question blocks by leading numbers."""
+    matches = list(re.finditer(r"(?m)^\s*(\d{1,2})[\.．、]\s*", text))
+    if len(matches) < 2:
+        return []
+
+    blocks = []
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        block = text[start:end].strip()
+        if len(block) >= 20:
+            blocks.append(block)
+    return blocks
+
+
+def parse_question_blocks_with_mimo(text):
+    """Parse question blocks independently and merge successful results."""
+    blocks = split_text_into_question_blocks(text)
+    if not blocks:
+        return None
+
+    def _process_block(index, block):
+        logger.info("mimo_question_block start index=%s total=%s chars=%s", index, len(blocks), len(block))
+        block_start = time.perf_counter()
+        result = call_mimo(block, image_urls=None, retry=False)
+        logger.info(
+            "mimo_question_block done index=%s total=%s chars=%s elapsed=%.2fs error=%s",
+            index,
+            len(blocks),
+            len(block),
+            time.perf_counter() - block_start,
+            bool(result and "error" in result),
+        )
+        return result
+
+    results_by_index = {}
+    with ThreadPoolExecutor(max_workers=QUESTION_BLOCK_WORKERS) as executor:
+        futures = {
+            executor.submit(_process_block, index, block): index
+            for index, block in enumerate(blocks, start=1)
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results_by_index[index] = future.result()
+            except Exception as e:
+                results_by_index[index] = {"error": f"Thread failed: {e}"}
+
+    batch_results = []
+    for index in range(1, len(blocks) + 1):
+        result = results_by_index.get(index)
+        if result and "questions" in result:
+            batch_results.append(result)
+
+    if not batch_results:
+        return None
+    return merge_question_batches(batch_results)
 
 
 def merge_image_annotations(text_result, annotation_results, image_count):
@@ -814,8 +883,23 @@ def parse_document_to_questions(filepath):
             "image_source": image_source,
         }
 
+    text_blocks = split_text_into_question_blocks(text)
+    result = None
+    if len(text_blocks) >= QUESTION_BLOCKS_FIRST_THRESHOLD:
+        block_start = time.perf_counter()
+        result = parse_question_blocks_with_mimo(text)
+        logger.info(
+            "parse_document block_ai_done file=%s kind=%s blocks=%s elapsed=%.2fs error=%s",
+            os.path.basename(filepath),
+            kind,
+            len(text_blocks),
+            time.perf_counter() - block_start,
+            not bool(result),
+        )
+
     ai_start = time.perf_counter()
-    result = call_mimo(text)
+    if result is None:
+        result = call_mimo(text)
     logger.info(
         "parse_document text_ai_done file=%s kind=%s images=%s batches=%s elapsed=%.2fs error=%s",
         os.path.basename(filepath),
@@ -828,7 +912,11 @@ def parse_document_to_questions(filepath):
     if not result:
         return {"error": "AI 解析失败，请重试"}
     if "error" in result:
-        return result
+        fallback_result = parse_question_blocks_with_mimo(text)
+        if fallback_result:
+            result = fallback_result
+        else:
+            return result
 
     if image_urls:
         image_ai_start = time.perf_counter()

@@ -109,6 +109,7 @@
             </div>
 
             <input type="hidden" name="question_num" value="{{ q.question_num }}">
+            <input type="hidden" name="image_refs" value='{{ (q.image_refs or []) | tojson }}'>
           </div>
           {% endfor %}
         </div>
@@ -137,7 +138,7 @@ function confirmQuestions(paperId) {
     var q = {};
     card.querySelectorAll('input, textarea').forEach(function(el) {
       var name = el.name;
-      if (name === 'options') {
+      if (name === 'options' || name === 'image_refs') {
         try { q[name] = JSON.parse(el.value); } catch(e) { q[name] = []; }
       } else if (name === 'question_num') {
         q[name] = parseInt(el.value);

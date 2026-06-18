@@ -10,6 +10,10 @@ class DocumentParserTests(unittest.TestCase):
     def test_image_batch_size_is_small_enough_to_avoid_api_timeouts(self):
         self.assertEqual(parser.IMAGE_BATCH_SIZE, 4)
 
+    def test_image_compression_defaults_are_low_bandwidth(self):
+        self.assertEqual(parser.IMAGE_MAX_DIM, 640)
+        self.assertEqual(parser.IMAGE_JPEG_QUALITY, 50)
+
     def test_extraction_prompt_prefers_document_answers_and_explanations(self):
         self.assertIn("文档中已有答案或解析时", parser.EXTRACTION_PROMPT)
         self.assertIn("必须以文档原文为准", parser.EXTRACTION_PROMPT)
@@ -52,6 +56,74 @@ class DocumentParserTests(unittest.TestCase):
         self.assertEqual(call_mimo.call_args.args[0], "题干文字" * 20)
         annotate.assert_called_once_with("题干文字" * 20, text_result, ["data:image/png;base64,embedded"])
         merge.assert_called_once_with(text_result, [{"annotations": []}], 1)
+
+    def test_parse_document_falls_back_to_question_blocks_when_full_text_times_out(self):
+        text = "1. first question\nA. a\nB. b\n2. second question\nA. a\nB. b"
+        timeout_result = {"error": "API call timed out after 180s: slow"}
+        first_result = {"questions": [{"question_num": 1, "stem": "first"}]}
+        second_result = {"questions": [{"question_num": 2, "stem": "second"}]}
+
+        with mock.patch.object(parser, "extract_text_from_word", return_value=text), \
+             mock.patch.object(parser, "extract_docx_embedded_images_as_data_urls", return_value=[]), \
+             mock.patch.object(
+                 parser,
+                 "call_mimo",
+                 side_effect=[timeout_result, first_result, second_result],
+             ) as call_mimo:
+            result = parser.parse_document_to_questions("paper.docx")
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [1, 2])
+        self.assertEqual(call_mimo.call_count, 3)
+        self.assertIn("1. first question", call_mimo.call_args_list[1].args[0])
+        self.assertIn("2. second question", call_mimo.call_args_list[2].args[0])
+
+    def test_parse_document_uses_question_blocks_first_for_many_blocks(self):
+        text = "\n".join(f"{i}. question {i}\nA. a\nB. b" for i in range(1, 7))
+        block_result = {"questions": [{"question_num": 1, "stem": "first"}]}
+
+        with mock.patch.object(parser, "extract_text_from_word", return_value=text), \
+             mock.patch.object(parser, "extract_docx_embedded_images_as_data_urls", return_value=[]), \
+             mock.patch.object(parser, "parse_question_blocks_with_mimo", return_value=block_result) as parse_blocks, \
+             mock.patch.object(parser, "call_mimo") as call_mimo:
+            result = parser.parse_document_to_questions("paper.docx")
+
+        self.assertEqual(result["questions"], block_result["questions"])
+        parse_blocks.assert_called_once_with(text)
+        call_mimo.assert_not_called()
+
+    def test_question_blocks_are_submitted_with_configured_concurrency(self):
+        text = "\n".join(f"{i}. question {i}\nA. a\nB. b" for i in range(1, 7))
+        submitted = []
+
+        class ImmediateFuture:
+            def __init__(self, result):
+                self._result = result
+
+            def result(self):
+                return self._result
+
+        class RecordingExecutor:
+            def __init__(self, max_workers):
+                self.max_workers = max_workers
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def submit(self, fn, index, block):
+                submitted.append((self.max_workers, index, block))
+                return ImmediateFuture(fn(index, block))
+
+        with mock.patch.object(parser, "ThreadPoolExecutor", RecordingExecutor), \
+             mock.patch.object(parser, "as_completed", side_effect=lambda futures: futures), \
+             mock.patch.object(parser, "call_mimo", return_value={"questions": [{"question_num": 1}]}):
+            result = parser.parse_question_blocks_with_mimo(text)
+
+        self.assertEqual(result["questions"][0]["question_num"], 1)
+        self.assertEqual({item[0] for item in submitted}, {parser.QUESTION_BLOCK_WORKERS})
+        self.assertEqual(len(submitted), 6)
 
     def test_parse_document_renders_pdf_pages_and_uses_legacy_image_batching_when_text_is_missing(self):
         expected = {"questions": [{"question_num": 1, "stem": "image question"}]}
@@ -104,6 +176,31 @@ class DocumentParserTests(unittest.TestCase):
 
         self.assertEqual(parser.MIMO_TIMEOUT_SECONDS, 180)
         self.assertEqual(post.call_args.kwargs["timeout"], parser.MIMO_TIMEOUT_SECONDS)
+
+    def test_call_mimo_retries_timeout_with_smaller_text_only_payload(self):
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            "choices": [
+                {"message": {"content": '{"questions":[{"question_num":1}]}' }}
+            ]
+        }
+        long_text = "question text " * 4000
+
+        with mock.patch.object(parser, "MIMO_API_KEY", "test-key"), \
+             mock.patch.object(
+                 parser.requests,
+                 "post",
+                 side_effect=[parser.requests.ReadTimeout("slow"), response],
+             ) as post:
+            result = parser.call_mimo(long_text, image_urls=["data:image/png;base64,abc"])
+
+        self.assertEqual(result["questions"][0]["question_num"], 1)
+        self.assertEqual(post.call_count, 2)
+        retry_payload = post.call_args_list[1].kwargs["json"]
+        retry_content = retry_payload["messages"][1]["content"]
+        self.assertIsInstance(retry_content, str)
+        self.assertEqual(retry_content, long_text[:20000])
 
     def test_extract_text_from_docx_reads_paragraphs_and_tables(self):
         try:

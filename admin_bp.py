@@ -23,6 +23,13 @@ from config import UPLOAD_DIR, DATA_DIR
 executor = ThreadPoolExecutor(max_workers=4)
 
 
+def submit_parse_task(*args):
+    global executor
+    if getattr(executor, '_shutdown', False):
+        executor = ThreadPoolExecutor(max_workers=4)
+    return executor.submit(*args)
+
+
 def async_parse_task(app, paper_id, filepath):
     with app.app_context():
         try:
@@ -222,7 +229,7 @@ def upload_confirm():
 
     # Start async parse task
     app = current_app._get_current_object()
-    executor.submit(async_parse_task, app, paper_id, filepath)
+    submit_parse_task(async_parse_task, app, paper_id, filepath)
 
     return jsonify({'ok': True, 'paper_id': paper_id, 'msg': '试卷信息已确认，后台 AI 正在解析中...'})
 
@@ -287,7 +294,7 @@ def review_reparse(paper_id):
     conn.commit()
 
     app = current_app._get_current_object()
-    executor.submit(async_parse_task, app, paper_id, paper['file_path'])
+    submit_parse_task(async_parse_task, app, paper_id, paper['file_path'])
 
     return jsonify({'ok': True, 'msg': '已重新提交解析任务，请等待后台完成...'})
 
