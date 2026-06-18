@@ -47,7 +47,7 @@ MIMO_API_KEY = (
 )
 MIMO_API_URL = os.environ.get(
     'MIMO_API_URL',
-    'https://ark.cn-beijing.volces.com/api/coding/v1/chat/completions'
+    'https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions'
 )
 MIMO_MODEL = os.environ.get('MIMO_MODEL', 'doubao-seed-2.0-lite')
 

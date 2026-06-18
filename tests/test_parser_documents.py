@@ -11,8 +11,8 @@ class DocumentParserTests(unittest.TestCase):
         self.assertEqual(parser.IMAGE_BATCH_SIZE, 4)
 
     def test_image_compression_defaults_are_low_bandwidth(self):
-        self.assertEqual(parser.IMAGE_MAX_DIM, 640)
-        self.assertEqual(parser.IMAGE_JPEG_QUALITY, 50)
+        self.assertEqual(parser.IMAGE_MAX_DIM, 480)
+        self.assertEqual(parser.IMAGE_JPEG_QUALITY, 35)
 
     def test_extraction_prompt_prefers_document_answers_and_explanations(self):
         self.assertIn("文档中已有答案或解析时", parser.EXTRACTION_PROMPT)
@@ -615,6 +615,146 @@ class DocumentParserTests(unittest.TestCase):
 
         self.assertEqual([q["question_num"] for q in result["questions"]], [1, 2])
         self.assertEqual(calls.count("2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标"), 2)
+    def test_question_block_parse_keeps_source_block_number(self):
+        text = "12. 第十二题题干内容足够长用于切块，并包含更多文字保证长度达标\n13. 第十三题题干内容足够长用于切块，并包含更多文字保证长度达标"
+
+        def fake_call(block, image_urls=None, retry=True):
+            if block.startswith("12."):
+                return {"questions": [{"question_num": 20, "stem": block}]}
+            return {"questions": [{"question_num": 13, "stem": block}]}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            result = parser.parse_question_blocks_with_mimo(text)
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [12, 13])
+
+    def test_merge_question_batches_preserves_document_order(self):
+        result = parser.merge_question_batches([
+            {"questions": [{"question_num": 18, "stem": "18"}]},
+            {"questions": [{"question_num": 16, "stem": "16"}]},
+        ])
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [18, 16])
+
+    def test_image_compression_uses_low_bandwidth_defaults(self):
+        self.assertEqual(parser.IMAGE_MAX_DIM, 480)
+        self.assertEqual(parser.IMAGE_JPEG_QUALITY, 35)
+
+    def test_image_annotation_prompt_includes_neighbor_constraint(self):
+        captured = []
+
+        def fake_call(prompt, image_urls=None, system_prompt=None, retry=True):
+            captured.append(prompt)
+            return {"annotations": []}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            parser.call_mimo_image_annotation_batches(
+                "",
+                {"questions": [
+                    {"question_num": 16, "stem": "十六题"},
+                    {"question_num": 18, "stem": "十八题"},
+                ]},
+                ["img1"],
+            )
+
+        self.assertIn("相邻题号", captured[0])
+        self.assertIn("不要跨很远题号", captured[0])
+
+    def test_normalize_parse_result_keeps_extracted_numbers_even_when_source_numbers_are_known(self):
+        result = parser.normalize_parse_result({
+            "questions": [
+                {"question_num": i, "stem": str(i)} for i in range(1, 21)
+            ]
+        }, allowed_question_nums=set(range(1, 19)))
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], list(range(1, 21)))
+
+    def test_normalize_parse_result_keeps_twenty_question_documents_without_source_filter(self):
+        result = parser.normalize_parse_result({
+            "questions": [
+                {"question_num": i, "stem": str(i)} for i in range(1, 21)
+            ]
+        })
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], list(range(1, 21)))
+
+
+    def test_image_annotation_calls_do_not_retry_slow_batches(self):
+        calls = []
+
+        def fake_call(prompt, image_urls=None, system_prompt=None, retry=True):
+            calls.append(retry)
+            return {"annotations": []}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            parser.call_mimo_image_annotation_batches(
+                "",
+                {"questions": [{"question_num": 1, "stem": "??"}]},
+                ["img1"],
+            )
+
+        self.assertEqual(calls, [False])
+
+
+
+    def test_image_annotation_caps_images_for_speed(self):
+        seen = []
+
+        def fake_call(prompt, image_urls=None, system_prompt=None, retry=True):
+            seen.extend(image_urls or [])
+            return {"annotations": []}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            parser.call_mimo_image_annotation_batches(
+                "",
+                {"questions": [{"question_num": 1, "stem": "??"}]},
+                [f"img{i}" for i in range(12)],
+            )
+
+        self.assertEqual(len(seen), parser.MAX_ANNOTATION_IMAGES)
+
+
+
+    def test_normalize_parse_result_does_not_drop_extracted_question_numbers(self):
+        result = parser.normalize_parse_result({
+            "questions": [
+                {"question_num": 12, "stem": "12"},
+                {"question_num": 20, "stem": "20"},
+            ]
+        }, allowed_question_nums={12})
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [12, 20])
+
+    def test_pdf_embedded_images_follow_page_position_order(self):
+        calls = []
+
+        class FakePage:
+            def get_images(self, full=True):
+                return [(2,), (1,)]
+
+            def get_image_rects(self, xref):
+                rects = {1: [type("Rect", (), {"y0": 200, "x0": 10})()], 2: [type("Rect", (), {"y0": 100, "x0": 10})()]}
+                return rects[xref]
+
+        class FakeDoc:
+            def __len__(self):
+                return 1
+
+            def __getitem__(self, index):
+                return FakePage()
+
+            def extract_image(self, xref):
+                calls.append(xref)
+                return {"image": f"img{xref}".encode(), "ext": "png"}
+
+            def close(self):
+                pass
+
+        with mock.patch.object(parser, "HAS_FITZ", True),              mock.patch.object(parser.fitz, "open", return_value=FakeDoc()),              mock.patch.object(parser, "_compress_image_to_jpeg_bytes", side_effect=lambda data: (data, "image/jpeg")):
+            parser.extract_pdf_embedded_images_as_data_urls("paper.pdf")
+
+        self.assertEqual(calls, [2, 1])
+
 
 if __name__ == "__main__":
     unittest.main()

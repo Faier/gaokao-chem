@@ -16,8 +16,8 @@ from config import MIMO_API_KEY, MIMO_API_URL, MIMO_MODEL
 
 logger = logging.getLogger(__name__)
 
-IMAGE_MAX_DIM = 640
-IMAGE_JPEG_QUALITY = 50
+IMAGE_MAX_DIM = 480
+IMAGE_JPEG_QUALITY = 35
 QUESTION_BLOCKS_FIRST_THRESHOLD = 6
 QUESTION_BLOCK_WORKERS = 3
 
@@ -304,32 +304,42 @@ def extract_pdf_embedded_images_as_data_urls(filepath, max_images=None):
     try:
         doc = fitz.open(filepath)
         try:
+            positioned_images = []
             for page_index in range(len(doc)):
-                for image_info in doc.get_page_images(page_index, full=True):
+                page = doc[page_index]
+                for image_info in page.get_images(full=True):
                     xref = image_info[0]
                     if xref in seen:
                         continue
                     seen.add(xref)
-                    image = doc.extract_image(xref)
-                    image_bytes = image.get("image")
-                    if not image_bytes:
-                        continue
-                    compressed, jpeg_mime = _compress_image_to_jpeg_bytes(image_bytes)
-                    if jpeg_mime:
-                        final_bytes, final_mime = compressed, jpeg_mime
+                    rects = page.get_image_rects(xref)
+                    if rects:
+                        rect = rects[0]
+                        sort_key = (page_index, rect.y0, rect.x0)
                     else:
-                        ext = image.get("ext", "png").lower()
-                        if ext in {"jpg", "jpeg"}:
-                            final_mime = "image/jpeg"
-                        elif ext == "webp":
-                            final_mime = "image/webp"
-                        else:
-                            final_mime = "image/png"
-                        final_bytes = image_bytes
-                    encoded = base64.b64encode(final_bytes).decode("ascii")
-                    images.append(f"data:{final_mime};base64,{encoded}")
-                    if max_images is not None and len(images) >= max_images:
-                        return images
+                        sort_key = (page_index, float("inf"), float("inf"))
+                    positioned_images.append((sort_key, xref))
+            for _sort_key, xref in sorted(positioned_images):
+                image = doc.extract_image(xref)
+                image_bytes = image.get("image")
+                if not image_bytes:
+                    continue
+                compressed, jpeg_mime = _compress_image_to_jpeg_bytes(image_bytes)
+                if jpeg_mime:
+                    final_bytes, final_mime = compressed, jpeg_mime
+                else:
+                    ext = image.get("ext", "png").lower()
+                    if ext in {"jpg", "jpeg"}:
+                        final_mime = "image/jpeg"
+                    elif ext == "webp":
+                        final_mime = "image/webp"
+                    else:
+                        final_mime = "image/png"
+                    final_bytes = image_bytes
+                encoded = base64.b64encode(final_bytes).decode("ascii")
+                images.append(f"data:{final_mime};base64,{encoded}")
+                if max_images is not None and len(images) >= max_images:
+                    return images
         finally:
             doc.close()
     except Exception:
@@ -365,6 +375,20 @@ def extract_docx_embedded_images_as_data_urls(filepath, max_images=None):
                  and os.path.splitext(name)[1].lower() in mime_map),
                 key=_natural_sort_key,
             )
+            try:
+                rels = zf.read("word/_rels/document.xml.rels").decode("utf-8", errors="ignore")
+                document_xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
+                rel_targets = dict(re.findall(r'<Relationship[^>]+Id="([^"]+)"[^>]+Target="media/([^"]+)"', rels))
+                ordered = []
+                for rel_id in re.findall(r'r:embed="([^"]+)"', document_xml):
+                    target = rel_targets.get(rel_id)
+                    if target:
+                        name = "word/media/" + target
+                        if name in media_names and name not in ordered:
+                            ordered.append(name)
+                media_names = ordered + [name for name in media_names if name not in ordered]
+            except Exception:
+                pass
             for name in media_names:
                 ext = os.path.splitext(name)[1].lower()
                 with zf.open(name) as fh:
@@ -520,14 +544,15 @@ def chunk_items(items, chunk_size):
     return [items[i:i + chunk_size] for i in range(0, len(items), chunk_size)]
 
 
-def normalize_parse_result(result, image_count=0):
+def normalize_parse_result(result, image_count=0, allowed_question_nums=None):
     """Drop unusable questions and sanitize fields the review UI depends on."""
     if not result or "questions" not in result:
         return result
 
     questions = []
     for question in result.get("questions", []):
-        if question.get("question_num") is None:
+        question_num = question.get("question_num")
+        if not isinstance(question_num, int):
             continue
         if not isinstance(question.get("options", []), list):
             question["options"] = []
@@ -559,7 +584,7 @@ def merge_question_batches(batch_results):
             if question_num not in by_num:
                 order.append(question_num)
             by_num[question_num] = question
-    return {"questions": [by_num[num] for num in sorted(order)]}
+    return {"questions": [by_num[num] for num in order]}
 
 
 def split_text_into_question_blocks(text):
@@ -590,6 +615,11 @@ def parse_question_blocks_with_mimo(text):
         result = call_mimo(block, image_urls=None, retry=False)
         if result and "error" in result:
             result = call_mimo(block, image_urls=None, retry=False)
+        if result and "questions" in result:
+            result = {**result, "questions": [dict(question) for question in result.get("questions", [])]}
+            match = re.match(r"\s*(\d{1,2})", block)
+            if match and len(result.get("questions", [])) == 1:
+                result["questions"][0]["question_num"] = int(match.group(1))
         logger.info(
             "mimo_question_block done index=%s total=%s chars=%s elapsed=%.2fs error=%s",
             index,
@@ -621,7 +651,8 @@ def parse_question_blocks_with_mimo(text):
 
     if not batch_results:
         return None
-    return normalize_parse_result(merge_question_batches(batch_results))
+    block_question_nums = {int(m.group(1)) for block in blocks for m in [re.match(r"\s*(\d{1,2})", block)] if m}
+    return normalize_parse_result(merge_question_batches(batch_results), allowed_question_nums=block_question_nums or None)
 
 
 def merge_image_annotations(text_result, annotation_results, image_count):
@@ -677,6 +708,7 @@ def merge_image_annotations(text_result, annotation_results, image_count):
 # Per-batch image count. Keep single multimodal calls small enough to avoid
 # common provider read timeouts on image-heavy Word documents.
 IMAGE_BATCH_SIZE = 4
+MAX_ANNOTATION_IMAGES = 8
 
 
 def call_mimo_image_annotation_batches(paper_text, text_result, image_urls, batch_size=IMAGE_BATCH_SIZE):
@@ -691,7 +723,7 @@ def call_mimo_image_annotation_batches(paper_text, text_result, image_urls, batc
         question_lines.append(f"{question_num}. {stem}")
 
     annotation_results = []
-    batches = chunk_items(list(enumerate(image_urls, start=1)), batch_size)
+    batches = chunk_items(list(enumerate(image_urls[:MAX_ANNOTATION_IMAGES], start=1)), batch_size)
 
     def _process_batch(index, batch):
         batch_refs = [ref for ref, _ in batch]
@@ -701,12 +733,13 @@ def call_mimo_image_annotation_batches(paper_text, text_result, image_urls, batc
             "已解析题目列表：\n"
             f"{chr(10).join(question_lines)}\n\n"
             f"当前批次全局图片序号：{batch_refs}\n\n"
+            "优先匹配相邻题号：图片通常属于它前后最近的题目，不要跨很远题号，除非图片文字明确写了题号。\n"
             "输出 schema：annotations 数组，每项包含 question_num、image_refs、visual_note。\n"
             "image_refs 必须使用文档中的全局图片序号。"
         )
         logger.info("mimo_image_annotation start index=%s total=%s images=%s refs=%s", index, len(batches), len(batch_urls), batch_refs)
         batch_start = time.perf_counter()
-        result = call_mimo(prompt, image_urls=batch_urls, system_prompt=IMAGE_ANNOTATION_PROMPT)
+        result = call_mimo(prompt, image_urls=batch_urls, system_prompt=IMAGE_ANNOTATION_PROMPT, retry=False)
         logger.info(
             "mimo_image_annotation done index=%s total=%s images=%s elapsed=%.2fs error=%s",
             index,
