@@ -20,6 +20,7 @@ IMAGE_MAX_DIM = 480
 IMAGE_JPEG_QUALITY = 35
 QUESTION_BLOCKS_FIRST_THRESHOLD = 6
 QUESTION_BLOCK_WORKERS = 3
+MAX_REASONABLE_QUESTION_NUM = 30
 
 try:
     import pdfplumber
@@ -554,6 +555,8 @@ def normalize_parse_result(result, image_count=0, allowed_question_nums=None):
         question_num = question.get("question_num")
         if not isinstance(question_num, int):
             continue
+        if not 1 <= question_num <= MAX_REASONABLE_QUESTION_NUM:
+            continue
         if not isinstance(question.get("options", []), list):
             question["options"] = []
         image_refs = []
@@ -584,12 +587,36 @@ def merge_question_batches(batch_results):
             if question_num not in by_num:
                 order.append(question_num)
             by_num[question_num] = question
-    return {"questions": [by_num[num] for num in order]}
+    return {"questions": [by_num[num] for num in sorted(order)]}
 
 
 def split_text_into_question_blocks(text):
     """Split extracted paper text into coarse question blocks by leading numbers."""
-    matches = list(re.finditer(r"(?m)^\s*(\d{1,2})[\.．、]\s*", text))
+    matches = []
+    question_re = re.compile(r"(?m)^\s*(\d{1,2})(?:[\.??]|\s*$)")
+    for match in question_re.finditer(text):
+        question_num = int(match.group(1))
+        if not 1 <= question_num <= MAX_REASONABLE_QUESTION_NUM:
+            continue
+        line_end = text.find("\n", match.end())
+        if line_end == -1:
+            line_end = len(text)
+        line_tail = text[match.end():line_end].strip()
+        next_lines = [line.strip() for line in text[line_end:].splitlines() if line.strip()]
+        next_text = next_lines[0] if next_lines else ""
+        if line_tail and len(line_tail) < 8:
+            continue
+        if not line_tail and len(next_text) < 12:
+            continue
+        matches.append(match)
+    sequential_matches = []
+    expected_num = None
+    for match in matches:
+        question_num = int(match.group(1))
+        if expected_num is None or question_num == expected_num + 1:
+            sequential_matches.append(match)
+            expected_num = question_num
+    matches = sequential_matches
     if len(matches) < 2:
         return []
 
@@ -602,12 +629,25 @@ def split_text_into_question_blocks(text):
             blocks.append(block)
     return blocks
 
-
 def parse_question_blocks_with_mimo(text):
     """Parse question blocks independently and merge successful results."""
     blocks = split_text_into_question_blocks(text)
     if not blocks:
         return None
+
+    def _fallback_question_from_block(block):
+        match = re.match(r"\s*(\d{1,2})", block)
+        if not match:
+            return None
+        return {
+            "question_num": int(match.group(1)),
+            "q_type": "待审核",
+            "stem": block.strip(),
+            "options": [],
+            "answer": "",
+            "explanation": "",
+            "topics": "",
+        }
 
     def _process_block(index, block):
         logger.info("mimo_question_block start index=%s total=%s chars=%s", index, len(blocks), len(block))
@@ -620,6 +660,10 @@ def parse_question_blocks_with_mimo(text):
             match = re.match(r"\s*(\d{1,2})", block)
             if match and len(result.get("questions", [])) == 1:
                 result["questions"][0]["question_num"] = int(match.group(1))
+        else:
+            fallback_question = _fallback_question_from_block(block)
+            if fallback_question:
+                result = {"questions": [fallback_question]}
         logger.info(
             "mimo_question_block done index=%s total=%s chars=%s elapsed=%.2fs error=%s",
             index,

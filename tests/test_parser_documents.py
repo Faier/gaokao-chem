@@ -600,6 +600,50 @@ class DocumentParserTests(unittest.TestCase):
         self.assertEqual(result["questions"][0]["options"], [])
         self.assertEqual(result["questions"][0]["image_refs"], [1])
 
+    def test_normalize_parse_result_drops_impossible_question_numbers(self):
+        result = parser.normalize_parse_result({
+            "questions": [
+                {"question_num": 0, "stem": "formula tail"},
+                {"question_num": 1, "stem": "real question"},
+                {"question_num": 55, "stem": "number from formula"},
+            ]
+        })
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [1])
+
+    def test_split_text_ignores_formula_subscript_lines(self):
+        text = "1\n\nfirst real question body long enough\nH SO\n2\n4\nformula continuation text long enough\n2\n\nsecond real question body long enough"
+
+        blocks = parser.split_text_into_question_blocks(text)
+
+        self.assertEqual(len(blocks), 2)
+        self.assertIn("formula continuation", blocks[0])
+        self.assertTrue(blocks[1].startswith("2\n\nsecond real question"))
+
+    def test_split_text_handles_pdf_question_numbers_on_separate_lines(self):
+        text = "1\n\nfirst question body\n??\nA\n??\ntext\n2\n\nsecond question body\n??\nB\n??\ntext"
+
+        blocks = parser.split_text_into_question_blocks(text)
+
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0].startswith("1\n\nfirst question body"))
+        self.assertTrue(blocks[1].startswith("2\n\nsecond question body"))
+
+    def test_question_block_parse_keeps_block_when_ai_fails(self):
+        text = "1. 第一题题干内容足够长用于切块，并包含更多文字保证长度达标\n2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标"
+
+        def fake_call(block, image_urls=None, retry=True):
+            if block.startswith("2."):
+                return {"error": "temporary"}
+            return {"questions": [{"question_num": 1, "stem": "parsed first", "answer": "A"}]}
+
+        with mock.patch.object(parser, "call_mimo", side_effect=fake_call):
+            result = parser.parse_question_blocks_with_mimo(text)
+
+        self.assertEqual([q["question_num"] for q in result["questions"]], [1, 2])
+        self.assertEqual(result["questions"][1]["stem"], "2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标")
+        self.assertEqual(result["questions"][1]["answer"], "")
+
     def test_question_block_parse_retries_failed_blocks_once(self):
         text = "1. 第一题题干内容足够长用于切块，并包含更多文字保证长度达标\n2. 第二题题干内容足够长用于切块，并包含更多文字保证长度达标"
         calls = []
@@ -628,13 +672,13 @@ class DocumentParserTests(unittest.TestCase):
 
         self.assertEqual([q["question_num"] for q in result["questions"]], [12, 13])
 
-    def test_merge_question_batches_preserves_document_order(self):
+    def test_merge_question_batches_sorts_by_question_number(self):
         result = parser.merge_question_batches([
             {"questions": [{"question_num": 18, "stem": "18"}]},
             {"questions": [{"question_num": 16, "stem": "16"}]},
         ])
 
-        self.assertEqual([q["question_num"] for q in result["questions"]], [18, 16])
+        self.assertEqual([q["question_num"] for q in result["questions"]], [16, 18])
 
     def test_image_compression_uses_low_bandwidth_defaults(self):
         self.assertEqual(parser.IMAGE_MAX_DIM, 480)
