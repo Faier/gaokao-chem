@@ -43,7 +43,7 @@ def search_questions(keyword='', page=1, size=15, year=None, province=None, q_ty
 
     offset = (page - 1) * size
     rows = conn.execute(
-        f"SELECT * FROM questions q WHERE {where_sql} ORDER BY q.year DESC LIMIT ? OFFSET ?",
+        f"SELECT * FROM questions q WHERE {where_sql} ORDER BY q.year DESC, q.paper_id DESC, q.question_num ASC LIMIT ? OFFSET ?",
         params + [size, offset]
     ).fetchall()
     conn.close()

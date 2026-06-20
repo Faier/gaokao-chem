@@ -224,22 +224,34 @@ function showDetail(qId) {
       html += '<i data-lucide="file-text" style="width:13px;height:13px;vertical-align:middle;margin-right:4px;"></i>' + q.paper_type;
       html += '</div>';
       
-      var stem = formatChemistryFormulas(escapeHtml(q.stem || ''));
-      html += '<div class="detail-stem">' + stem + '</div>';
-
+      var imgMap = {};
       if (q.images && q.images.length) {
-        html += '<div class="question-images">';
         q.images.forEach(function(img) {
-          html += '<img src="' + escapeHtml(img.url) + '" alt="题目图片' + escapeHtml(String(img.seq || '')) + '" style="max-width:100%; border:1px solid var(--line-soft); border-radius:8px; margin:8px 0; display:block;">';
+          imgMap[img.seq] = '<img src="' + escapeHtml(img.url) + '" alt="题目图片' + escapeHtml(String(img.seq || '')) + '" style="max-width:100%; border:1px solid var(--line-soft); border-radius:8px; margin:4px 0; display:inline-block; vertical-align: middle;">';
         });
-        html += '</div>';
       }
+
+      function injectImages(text) {
+        if (!text) return '';
+        return text.replace(/\[图片(\d+)\]/g, function(match, seqStr) {
+          var seq = parseInt(seqStr, 10);
+          if (imgMap[seq]) {
+            var imgHtml = imgMap[seq];
+            delete imgMap[seq];
+            return imgHtml;
+          }
+          return match;
+        });
+      }
+
+      var stem = injectImages(formatChemistryFormulas(escapeHtml(q.stem || '')));
+      html += '<div class="detail-stem">' + stem + '</div>';
 
       if (q.options && q.options.length) {
         html += '<div class="detail-options"><ul>';
         q.options.forEach(function(o) {
           for (var k in o) { 
-            html += '<li><strong>' + k + '</strong> ' + formatChemistryFormulas(escapeHtml(o[k])) + '</li>'; 
+            html += '<li><strong>' + k + '</strong> ' + injectImages(formatChemistryFormulas(escapeHtml(o[k]))) + '</li>'; 
           }
         });
         html += '</ul></div>';
@@ -247,12 +259,12 @@ function showDetail(qId) {
       
       html += '<div class="detail-section detail-section-answer">';
       html += '<h3><i data-lucide="check-circle" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> 答案</h3>';
-      html += '<p>' + escapeHtml(q.answer || '') + '</p></div>';
+      html += '<p>' + injectImages(escapeHtml(q.answer || '')) + '</p></div>';
       
       if (q.explanation) {
         html += '<div class="detail-section detail-section-explanation">';
         html += '<h3><i data-lucide="book-open" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> 解析</h3>';
-        html += '<p>' + formatChemistryFormulas(escapeHtml(q.explanation)).replace(/\n/g, '<br>') + '</p></div>';
+        html += '<p>' + injectImages(formatChemistryFormulas(escapeHtml(q.explanation)).replace(/\n/g, '<br>')) + '</p></div>';
       }
       
       if (q.topics) {
@@ -263,6 +275,15 @@ function showDetail(qId) {
         html += '<div class="detail-section detail-section-topics">';
         html += '<h3><i data-lucide="tag" style="width: 14px; height: 14px; display: inline-block; vertical-align: middle; margin-right: 4px;"></i> 知识点</h3>';
         html += '<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:6px;">' + tagsHtml + '</div></div>';
+      }
+
+      var remainingImages = Object.values(imgMap);
+      if (remainingImages.length > 0) {
+        html += '<div class="question-images">';
+        remainingImages.forEach(function(imgHtml) {
+          html += imgHtml;
+        });
+        html += '</div>';
       }
       
       document.getElementById('modal-body').innerHTML = html;

@@ -42,6 +42,11 @@ except ImportError:
 
 try:
     from docx import Document
+    from docx.document import Document as _Document
+    from docx.oxml.text.paragraph import CT_P
+    from docx.oxml.table import CT_Tbl
+    from docx.table import _Cell, Table
+    from docx.text.paragraph import Paragraph
     HAS_DOCX = True
 except ImportError:
     HAS_DOCX = False
@@ -233,15 +238,25 @@ def _extract_pdf_text_with_fitz(filepath):
         try:
             text_parts = []
             block_parts = []
+            image_counter = 1
             for page in doc:
-                text = page.get_text("text")
-                if text:
-                    text_parts.append(text)
-                blocks = page.get_text("blocks")
+                blocks = page.get_text("dict").get("blocks", [])
                 if blocks:
-                    blocks = sorted(blocks, key=lambda b: (round(b[1]), b[0]))
-                    block_parts.extend(b[4] for b in blocks if len(b) > 4 and b[4].strip())
-            return ["\n\n".join(text_parts), "\n".join(block_parts)]
+                    blocks = sorted(blocks, key=lambda b: (round(b["bbox"][1]), b["bbox"][0]))
+                    for b in blocks:
+                        if b["type"] == 0:  # text
+                            text_lines = []
+                            for line in b.get("lines", []):
+                                for span in line.get("spans", []):
+                                    if span.get("text"):
+                                        text_lines.append(span["text"])
+                            block_text = "".join(text_lines).strip()
+                            if block_text:
+                                block_parts.append(block_text)
+                        elif b["type"] == 1:  # image
+                            block_parts.append(f"[图片{image_counter}]")
+                            image_counter += 1
+            return ["", "\n".join(block_parts)]
         finally:
             doc.close()
     except Exception:
@@ -305,42 +320,33 @@ def extract_pdf_embedded_images_as_data_urls(filepath, max_images=None):
     try:
         doc = fitz.open(filepath)
         try:
-            positioned_images = []
-            for page_index in range(len(doc)):
-                page = doc[page_index]
-                for image_info in page.get_images(full=True):
-                    xref = image_info[0]
-                    if xref in seen:
-                        continue
-                    seen.add(xref)
-                    rects = page.get_image_rects(xref)
-                    if rects:
-                        rect = rects[0]
-                        sort_key = (page_index, rect.y0, rect.x0)
-                    else:
-                        sort_key = (page_index, float("inf"), float("inf"))
-                    positioned_images.append((sort_key, xref))
-            for _sort_key, xref in sorted(positioned_images):
-                image = doc.extract_image(xref)
-                image_bytes = image.get("image")
-                if not image_bytes:
-                    continue
-                compressed, jpeg_mime = _compress_image_to_jpeg_bytes(image_bytes)
-                if jpeg_mime:
-                    final_bytes, final_mime = compressed, jpeg_mime
-                else:
-                    ext = image.get("ext", "png").lower()
-                    if ext in {"jpg", "jpeg"}:
-                        final_mime = "image/jpeg"
-                    elif ext == "webp":
-                        final_mime = "image/webp"
-                    else:
-                        final_mime = "image/png"
-                    final_bytes = image_bytes
-                encoded = base64.b64encode(final_bytes).decode("ascii")
-                images.append(f"data:{final_mime};base64,{encoded}")
-                if max_images is not None and len(images) >= max_images:
-                    return images
+            for page in doc:
+                blocks = page.get_text("dict").get("blocks", [])
+                if blocks:
+                    blocks = sorted(blocks, key=lambda b: (round(b["bbox"][1]), b["bbox"][0]))
+                    for b in blocks:
+                        if b["type"] == 1:
+                            image_bytes = b.get("image")
+                            if not image_bytes:
+                                continue
+                            
+                            compressed, jpeg_mime = _compress_image_to_jpeg_bytes(image_bytes)
+                            if jpeg_mime:
+                                final_bytes, final_mime = compressed, jpeg_mime
+                            else:
+                                ext = b.get("ext", "png").lower()
+                                if ext in {"jpg", "jpeg"}:
+                                    final_mime = "image/jpeg"
+                                elif ext == "webp":
+                                    final_mime = "image/webp"
+                                else:
+                                    final_mime = "image/png"
+                                final_bytes = image_bytes
+                            encoded = base64.b64encode(final_bytes).decode("ascii")
+                            images.append(f"data:{final_mime};base64,{encoded}")
+                            if max_images is not None and len(images) >= max_images:
+                                return images
+
         finally:
             doc.close()
     except Exception:
@@ -381,11 +387,11 @@ def extract_docx_embedded_images_as_data_urls(filepath, max_images=None):
                 document_xml = zf.read("word/document.xml").decode("utf-8", errors="ignore")
                 rel_targets = dict(re.findall(r'<Relationship[^>]+Id="([^"]+)"[^>]+Target="media/([^"]+)"', rels))
                 ordered = []
-                for rel_id in re.findall(r'r:embed="([^"]+)"', document_xml):
+                for rel_id in re.findall(r'<(?:a:blip|v:imagedata)[^>]+(?:r:embed|r:id)="([^"]+)"', document_xml):
                     target = rel_targets.get(rel_id)
                     if target:
                         name = "word/media/" + target
-                        if name in media_names and name not in ordered:
+                        if name in media_names:
                             ordered.append(name)
                 media_names = ordered + [name for name in media_names if name not in ordered]
             except Exception:
@@ -418,14 +424,51 @@ def extract_text_from_word(filepath):
             return None
         try:
             doc = Document(filepath)
-            parts = [p.text for p in doc.paragraphs if p.text.strip()]
-            for table in doc.tables:
-                for row in table.rows:
-                    cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
-                    if cells:
-                        parts.append("\t".join(cells))
+            
+            def iter_block_items(parent):
+                if isinstance(parent, _Document):
+                    parent_elm = parent.element.body
+                elif isinstance(parent, _Cell):
+                    parent_elm = parent._tc
+                else:
+                    return
+
+                for child in parent_elm.iterchildren():
+                    if isinstance(child, CT_P):
+                        yield Paragraph(child, parent)
+                    elif isinstance(child, CT_Tbl):
+                        yield Table(child, parent)
+            
+            image_counter = [1]
+            def extract_paragraph_text(paragraph):
+                text_parts = []
+                for node in paragraph._element.xpath('.//w:t | .//m:t | .//*[local-name()="drawing" or local-name()="pict"]'):
+                    if node.tag.endswith('}t'):
+                        if node.text:
+                            text_parts.append(node.text)
+                    else:
+                        text_parts.append(f"[图片{image_counter[0]}]")
+                        image_counter[0] += 1
+                return "".join(text_parts)
+
+            parts = []
+            for block in iter_block_items(doc):
+                if isinstance(block, Paragraph):
+                    text = extract_paragraph_text(block).strip()
+                    if text:
+                        parts.append(text)
+                elif isinstance(block, Table):
+                    for row in block.rows:
+                        cells = []
+                        for cell in row.cells:
+                            cell_text = '\n'.join(extract_paragraph_text(p).strip() for p in cell.paragraphs)
+                            if cell_text.strip():
+                                cells.append(cell_text.strip())
+                        if cells:
+                            parts.append("\t".join(cells))
             return "\n".join(parts) or None
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to extract text from docx: {e}")
             return None
 
     if ext == ".doc":
@@ -500,7 +543,6 @@ def call_mimo(paper_text, image_urls=None, system_prompt=EXTRACTION_PROMPT, retr
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
-        "response_format": {"type": "json_object"},
         "max_tokens": 16000,
         "temperature": 0.1,
     }
@@ -563,6 +605,29 @@ def normalize_parse_result(result, image_count=0, allowed_question_nums=None):
         for ref in question.get("image_refs", []):
             if type(ref) is int and 1 <= ref <= image_count and ref not in image_refs:
                 image_refs.append(ref)
+                
+        # Also auto-extract implicitly referenced images like [图片3]
+        import re
+        def extract_refs(text):
+            if text:
+                for match in re.finditer(r"\[图片(\d+)\]", text):
+                    ref = int(match.group(1))
+                    if 1 <= ref <= image_count and ref not in image_refs:
+                        image_refs.append(ref)
+
+        extract_refs(question.get("stem", ""))
+        extract_refs(question.get("answer", ""))
+        extract_refs(question.get("explanation", ""))
+        for opt in question.get("options", []):
+            if isinstance(opt, str):
+                extract_refs(opt)
+            elif isinstance(opt, dict):
+                for v in opt.values():
+                    if isinstance(v, str):
+                        extract_refs(v)
+
+        image_refs.sort()
+
         if image_refs:
             question["image_refs"] = image_refs
         else:
@@ -629,46 +694,57 @@ def split_text_into_question_blocks(text):
             blocks.append(block)
     return blocks
 
+TEXT_BLOCK_BATCH_SIZE = 5
+
 def parse_question_blocks_with_mimo(text):
-    """Parse question blocks independently and merge successful results."""
+    """Parse question blocks in batches and merge successful results."""
     blocks = split_text_into_question_blocks(text)
     if not blocks:
         return None
 
-    def _fallback_question_from_block(block):
-        match = re.match(r"\s*(\d{1,2})", block)
-        if not match:
-            return None
-        return {
-            "question_num": int(match.group(1)),
-            "q_type": "待审核",
-            "stem": block.strip(),
-            "options": [],
-            "answer": "",
-            "explanation": "",
-            "topics": "",
-        }
+    batches = chunk_items(blocks, TEXT_BLOCK_BATCH_SIZE)
 
-    def _process_block(index, block):
-        logger.info("mimo_question_block start index=%s total=%s chars=%s", index, len(blocks), len(block))
+    def _fallback_questions_from_batch(batch):
+        fallbacks = []
+        for block in batch:
+            match = re.match(r"\s*(\d{1,2})", block)
+            if match:
+                fallbacks.append({
+                    "question_num": int(match.group(1)),
+                    "q_type": "待审核",
+                    "stem": block.strip(),
+                    "options": [],
+                    "answer": "",
+                    "explanation": "",
+                    "topics": "",
+                })
+        return fallbacks
+
+    def _process_batch(index, batch):
+        batch_text = "\n\n".join(batch)
+        logger.info("mimo_question_batch start index=%s total=%s blocks=%s chars=%s", index, len(batches), len(batch), len(batch_text))
         block_start = time.perf_counter()
-        result = call_mimo(block, image_urls=None, retry=False)
+        result = call_mimo(batch_text, image_urls=None, retry=False)
         if result and "error" in result:
-            result = call_mimo(block, image_urls=None, retry=False)
+            result = call_mimo(batch_text, image_urls=None, retry=False)
+            
         if result and "questions" in result:
             result = {**result, "questions": [dict(question) for question in result.get("questions", [])]}
-            match = re.match(r"\s*(\d{1,2})", block)
-            if match and len(result.get("questions", [])) == 1:
-                result["questions"][0]["question_num"] = int(match.group(1))
+            if len(batch) == 1 and len(result.get("questions", [])) == 1:
+                match = re.match(r"\s*(\d{1,2})", batch[0])
+                if match:
+                    result["questions"][0]["question_num"] = int(match.group(1))
         else:
-            fallback_question = _fallback_question_from_block(block)
-            if fallback_question:
-                result = {"questions": [fallback_question]}
+            fallbacks = _fallback_questions_from_batch(batch)
+            if fallbacks:
+                result = {"questions": fallbacks}
+                
         logger.info(
-            "mimo_question_block done index=%s total=%s chars=%s elapsed=%.2fs error=%s",
+            "mimo_question_batch done index=%s total=%s blocks=%s chars=%s elapsed=%.2fs error=%s",
             index,
-            len(blocks),
-            len(block),
+            len(batches),
+            len(batch),
+            len(batch_text),
             time.perf_counter() - block_start,
             bool(result and "error" in result),
         )
@@ -677,8 +753,8 @@ def parse_question_blocks_with_mimo(text):
     results_by_index = {}
     with ThreadPoolExecutor(max_workers=QUESTION_BLOCK_WORKERS) as executor:
         futures = {
-            executor.submit(_process_block, index, block): index
-            for index, block in enumerate(blocks, start=1)
+            executor.submit(_process_batch, index, batch): index
+            for index, batch in enumerate(batches, start=1)
         }
         for future in as_completed(futures):
             index = futures[future]
@@ -688,7 +764,7 @@ def parse_question_blocks_with_mimo(text):
                 results_by_index[index] = {"error": f"Thread failed: {e}"}
 
     batch_results = []
-    for index in range(1, len(blocks) + 1):
+    for index in range(1, len(batches) + 1):
         result = results_by_index.get(index)
         if result and "questions" in result:
             batch_results.append(result)
