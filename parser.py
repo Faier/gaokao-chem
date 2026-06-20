@@ -16,10 +16,10 @@ from config import MIMO_API_KEY, MIMO_API_URL, MIMO_MODEL
 
 logger = logging.getLogger(__name__)
 
-IMAGE_MAX_DIM = 480
-IMAGE_JPEG_QUALITY = 35
+IMAGE_MAX_DIM = 600
+IMAGE_JPEG_QUALITY = 40
 QUESTION_BLOCKS_FIRST_THRESHOLD = 6
-QUESTION_BLOCK_WORKERS = 3
+QUESTION_BLOCK_WORKERS = 6
 MAX_REASONABLE_QUESTION_NUM = 30
 
 try:
@@ -1096,20 +1096,8 @@ def parse_document_to_questions(filepath):
         else:
             return result
 
-    if image_urls:
-        image_ai_start = time.perf_counter()
-        annotation_results = call_mimo_image_annotation_batches(text, result, image_urls)
-        annotation_errors = sum(1 for item in annotation_results if item and "error" in item)
-        result = merge_image_annotations(result, annotation_results, len(image_urls))
-        logger.info(
-            "parse_document image_ai_done file=%s kind=%s images=%s batches=%s annotation_errors=%s elapsed=%.2fs",
-            os.path.basename(filepath),
-            kind,
-            len(image_urls),
-            batches,
-            annotation_errors,
-            time.perf_counter() - image_ai_start,
-        )
+    # We no longer send images to MIMO for a second pass because 
+    # the image references are perfectly aligned by the text placeholders.
 
     result = normalize_parse_result(result, len(image_urls))
     questions = result.get("questions", [])

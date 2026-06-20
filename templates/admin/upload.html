@@ -73,18 +73,13 @@
       <div id="step1">
         <i data-lucide="upload-cloud" style="width: 48px; height: 48px; color: var(--blue-600); margin-bottom: 16px;"></i>
         <p style="color: var(--text-2); font-size: 15px; margin-bottom: 14px;">请选择要导入的化学试卷文档</p>
-        <input type="file" id="pdf-file" accept=".pdf,.doc,.docx">
         
-        <!-- PDF Page Selection Container -->
-        <div id="pdf-preview-section" style="display:none; margin: 20px 0; text-align: left;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-            <label style="font-weight:700; font-size:14px; color: var(--text-2);">选择需要解析的页面（默认全选）：</label>
-            <div style="display:flex; gap:8px;">
-              <button type="button" onclick="selectAllPages(true)" style="min-height:28px; padding: 0 10px; font-size:12px; border-radius:8px;" class="nav-link nav-link-secondary">全选</button>
-              <button type="button" onclick="selectAllPages(false)" style="min-height:28px; padding: 0 10px; font-size:12px; border-radius:8px;" class="nav-link nav-link-secondary">全不选</button>
-            </div>
-          </div>
-          <div id="pdf-thumbnail-grid" class="pdf-thumbnail-grid"></div>
+        <div style="margin-bottom: 24px;">
+          <input type="file" id="pdf-file" accept=".pdf,.doc,.docx" style="display: none;">
+          <label for="pdf-file" style="cursor: pointer; display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; background: white; border: 1px solid var(--line-soft); border-radius: 8px; font-size: 14px; font-weight: 600; color: var(--text-1); box-shadow: var(--shadow-sm); transition: all 0.2s;">
+            <i data-lucide="file-up" style="width: 18px; height: 18px; color: var(--blue-500);"></i>
+            <span id="file-name-display">选择文件</span>
+          </label>
         </div>
 
         <button id="analyze-btn" onclick="analyzePDF()" style="margin: 0 auto;">
@@ -140,102 +135,14 @@
 var filepath = '';
 var filename = '';
 var originalFile = null;
-var pdfDocInstance = null;
-var selectedPages = []; // 1-based page numbers
-
-// Configure pdf.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-
-document.getElementById('pdf-file').addEventListener('change', async function(e) {
+document.getElementById('pdf-file').addEventListener('change', function(e) {
   var file = e.target.files[0];
-  originalFile = file;
-  selectedPages = [];
-  document.getElementById('pdf-preview-section').style.display = 'none';
-  document.getElementById('pdf-thumbnail-grid').innerHTML = '';
-  
-  if (!file || !file.name.toLowerCase().endsWith('.pdf')) {
-    return;
-  }
-  
-  try {
-    var arrayBuffer = await file.arrayBuffer();
-    var loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-    pdfDocInstance = await loadingTask.promise;
-    var numPages = pdfDocInstance.numPages;
-    
-    // Select all pages by default
-    for (var i = 1; i <= numPages; i++) {
-      selectedPages.push(i);
-    }
-    
-    var grid = document.getElementById('pdf-thumbnail-grid');
-    document.getElementById('pdf-preview-section').style.display = 'block';
-    
-    for (var pageNum = 1; pageNum <= numPages; pageNum++) {
-      renderThumbnail(pageNum);
-    }
-  } catch (err) {
-    console.error('PDF preview failed:', err);
+  if (file) {
+    document.getElementById('file-name-display').textContent = file.name;
+  } else {
+    document.getElementById('file-name-display').textContent = '选择文件';
   }
 });
-
-async function renderThumbnail(pageNum) {
-  try {
-    var page = await pdfDocInstance.getPage(pageNum);
-    var viewport = page.getViewport({ scale: 0.22 }); // scale down for thumbnail
-    
-    var container = document.createElement('div');
-    container.className = 'pdf-thumbnail-item selected';
-    container.dataset.page = pageNum;
-    
-    var canvas = document.createElement('canvas');
-    canvas.className = 'pdf-thumbnail-canvas';
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    
-    var ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-    
-    var label = document.createElement('span');
-    label.className = 'pdf-thumbnail-label';
-    label.textContent = '第 ' + pageNum + ' 页';
-    
-    container.appendChild(canvas);
-    container.appendChild(label);
-    
-    container.addEventListener('click', function() {
-      var pNum = parseInt(this.dataset.page);
-      var idx = selectedPages.indexOf(pNum);
-      if (idx > -1) {
-        selectedPages.splice(idx, 1);
-        this.classList.remove('selected');
-      } else {
-        selectedPages.push(pNum);
-        this.classList.add('selected');
-      }
-      selectedPages.sort(function(a, b) { return a - b; });
-    });
-    
-    document.getElementById('pdf-thumbnail-grid').appendChild(container);
-  } catch (err) {
-    console.error('Page render failed:', err);
-  }
-}
-
-function selectAllPages(select) {
-  selectedPages = [];
-  var items = document.querySelectorAll('.pdf-thumbnail-item');
-  items.forEach(function(item) {
-    var pNum = parseInt(item.dataset.page);
-    if (select) {
-      selectedPages.push(pNum);
-      item.classList.add('selected');
-    } else {
-      item.classList.remove('selected');
-    }
-  });
-  selectedPages.sort(function(a, b) { return a - b; });
-}
 
 async function analyzePDF() {
   var inputFile = document.getElementById('pdf-file').files[0];
@@ -253,32 +160,6 @@ async function analyzePDF() {
   if (window.lucide) window.lucide.createIcons();
 
   var file = inputFile;
-
-  // Client-side PDF page extraction using pdf-lib
-  if (inputFile.name.toLowerCase().endsWith('.pdf') && pdfDocInstance && selectedPages.length > 0 && selectedPages.length < pdfDocInstance.numPages) {
-    try {
-      status.innerHTML = '<div class="flash-ok" style="flex-direction: column; align-items: stretch; text-align: left; gap: 8px;">'
-        + '<div style="display:flex; align-items:center; gap:8px;"><i data-lucide="loader" class="animate-spin" style="width:16px;height:16px;"></i><span>正在提取选定页面 (' + selectedPages.length + '/' + pdfDocInstance.numPages + ')...</span></div>'
-        + '<div class="loading-bar"><div class="loading-bar-fill"></div></div>'
-        + '</div>';
-      if (window.lucide) window.lucide.createIcons();
-
-      const { PDFDocument } = PDFLib;
-      const arrayBuffer = await inputFile.arrayBuffer();
-      const sourcePdf = await PDFDocument.load(arrayBuffer);
-      const newPdf = await PDFDocument.create();
-      
-      const pageIndices = selectedPages.map(p => p - 1);
-      const copiedPages = await newPdf.copyPages(sourcePdf, pageIndices);
-      copiedPages.forEach(page => newPdf.addPage(page));
-      
-      const pdfBytes = await newPdf.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      file = new File([blob], inputFile.name, { type: 'application/pdf' });
-    } catch (err) {
-      console.error('PDF page extraction failed, uploading original:', err);
-    }
-  }
 
   var fd = new FormData();
   fd.append('document', file);
