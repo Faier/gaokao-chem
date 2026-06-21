@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from flask import Blueprint, render_template, request, jsonify, current_app, send_from_directory
 from flask_login import login_required, current_user
 from functools import wraps
@@ -34,7 +35,19 @@ def async_parse_task(app, paper_id, filepath):
     with app.app_context():
         try:
             update_paper_status(paper_id, 'parsing')
-            result = parse_document_to_questions(filepath)
+            
+            def on_batch_done(partial_result):
+                try:
+                    conn = get_db()
+                    conn.execute(
+                        "UPDATE papers SET parse_result=? WHERE id=?",
+                        (json.dumps(partial_result, ensure_ascii=False), paper_id)
+                    )
+                    conn.commit()
+                except Exception as db_e:
+                    logging.error(f"Error saving partial result: {db_e}")
+
+            result = parse_document_to_questions(filepath, on_batch_done=on_batch_done)
             conn = get_db()
             if 'error' not in result:
                 conn.execute(
@@ -240,10 +253,29 @@ def paper_status(paper_id):
     paper = get_paper(paper_id)
     if not paper:
         return jsonify({'error': 'not found'}), 404
+    parsed_questions = []
+    images = []
+    image_source = None
+    if paper.get('parse_result'):
+        try:
+            parsed = json.loads(paper['parse_result'])
+            if isinstance(parsed, dict):
+                parsed_questions = parsed.get('questions', [])
+                images = parsed.get('images', [])
+                image_source = parsed.get('image_source', None)
+            else:
+                parsed_questions = parsed
+        except json.JSONDecodeError:
+            pass
+
     return jsonify({
         'ok': True,
         'status': paper.get('status', 'pending'),
-        'has_result': bool(paper.get('parse_result'))
+        'has_result': bool(paper.get('parse_result')),
+        'parsed_count': len(parsed_questions),
+        'questions': parsed_questions,
+        'images': images,
+        'image_source': image_source
     })
 
 

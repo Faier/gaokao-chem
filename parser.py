@@ -694,10 +694,10 @@ def split_text_into_question_blocks(text):
             blocks.append(block)
     return blocks
 
-TEXT_BLOCK_BATCH_SIZE = 5
+TEXT_BLOCK_BATCH_SIZE = 6
+QUESTION_BLOCK_WORKERS = 3
 
-def parse_question_blocks_with_mimo(text):
-    """Parse question blocks in batches and merge successful results."""
+def parse_question_blocks_with_mimo(text, on_batch_done=None, image_count=0):
     blocks = split_text_into_question_blocks(text)
     if not blocks:
         return None
@@ -751,6 +751,9 @@ def parse_question_blocks_with_mimo(text):
         return result
 
     results_by_index = {}
+    batch_results = []
+    block_question_nums = {int(m.group(1)) for block in blocks for m in [re.match(r"\s*(\d{1,2})", block)] if m}
+    
     with ThreadPoolExecutor(max_workers=QUESTION_BLOCK_WORKERS) as executor:
         futures = {
             executor.submit(_process_batch, index, batch): index
@@ -762,17 +765,17 @@ def parse_question_blocks_with_mimo(text):
                 results_by_index[index] = future.result()
             except Exception as e:
                 results_by_index[index] = {"error": f"Thread failed: {e}"}
-
-    batch_results = []
-    for index in range(1, len(batches) + 1):
-        result = results_by_index.get(index)
-        if result and "questions" in result:
-            batch_results.append(result)
+            
+            result = results_by_index.get(index)
+            if result and "questions" in result:
+                batch_results.append(result)
+            if on_batch_done and batch_results:
+                partial_result = normalize_parse_result(merge_question_batches(batch_results), image_count=image_count, allowed_question_nums=block_question_nums or None)
+                on_batch_done(partial_result)
 
     if not batch_results:
         return None
-    block_question_nums = {int(m.group(1)) for block in blocks for m in [re.match(r"\s*(\d{1,2})", block)] if m}
-    return normalize_parse_result(merge_question_batches(batch_results), allowed_question_nums=block_question_nums or None)
+    return normalize_parse_result(merge_question_batches(batch_results), image_count=image_count, allowed_question_nums=block_question_nums or None)
 
 
 def merge_image_annotations(text_result, annotation_results, image_count):
@@ -977,7 +980,7 @@ def save_images_to_disk(image_data_urls, paper_id, images_dir):
     return saved
 
 
-def parse_document_to_questions(filepath):
+def parse_document_to_questions(filepath, on_batch_done=None):
     """Parse a PDF, DOC, or DOCX file into structured question data."""
     total_start = time.perf_counter()
     kind = get_document_kind(filepath)
@@ -1065,7 +1068,7 @@ def parse_document_to_questions(filepath):
     result = None
     if len(text_blocks) >= QUESTION_BLOCKS_FIRST_THRESHOLD:
         block_start = time.perf_counter()
-        result = parse_question_blocks_with_mimo(text)
+        result = parse_question_blocks_with_mimo(text, on_batch_done=on_batch_done, image_count=len(image_urls))
         logger.info(
             "parse_document block_ai_done file=%s kind=%s blocks=%s elapsed=%.2fs error=%s",
             os.path.basename(filepath),
@@ -1090,7 +1093,7 @@ def parse_document_to_questions(filepath):
     if not result:
         return {"error": "AI 解析失败，请重试"}
     if "error" in result:
-        fallback_result = parse_question_blocks_with_mimo(text)
+        fallback_result = parse_question_blocks_with_mimo(text, on_batch_done=on_batch_done, image_count=len(image_urls))
         if fallback_result:
             result = fallback_result
         else:

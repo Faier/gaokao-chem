@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}审核解析 - {{ paper.title }}{% endblock %}
 {% block content %}
+<style>
+@keyframes slideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+</style>
 <section class="admin-workspace">
   <aside class="admin-sidebar">
     <h3>管理后台</h3>
@@ -20,16 +26,7 @@
     </header>
 
     <section class="workspace-panel admin-content">
-      {% if paper.status in ['pending', 'parsing'] %}
-        <div id="parsing-loading-state" style="text-align: center; padding: 48px 20px;">
-          <i data-lucide="cpu" class="animate-spin" style="width: 48px; height: 48px; color: var(--blue-600); margin: 0 auto 16px; display: block;"></i>
-          <h2 style="font-size: 20px; margin-bottom: 8px;">AI 正在解析题目...</h2>
-          <p style="color: var(--text-3); font-size: 14px; margin-bottom: 20px;">这可能需要 1~2 分钟，请不要关闭此页面，解析完成后会自动刷新。</p>
-          <div class="loading-bar" style="max-width: 300px; margin: 0 auto;">
-            <div class="loading-bar-fill"></div>
-          </div>
-        </div>
-      {% elif error %}
+      {% if error %}
         <div class="flash-error">
           <i data-lucide="alert-circle" style="width: 16px; height: 16px;"></i>
           <span>{{ error }}</span>
@@ -43,6 +40,17 @@
           </button>
         </div>
       {% else %}
+        <div id="parsing-loading-state" style="text-align: center; padding: 24px 20px; border: 1px dashed var(--line-normal); border-radius: 8px; margin-bottom: 20px; {% if paper.status not in ['pending', 'parsing'] %}display: none;{% endif %}">
+          <div style="display:flex; justify-content:center; align-items:center; gap:12px;">
+            <i data-lucide="cpu" class="animate-spin" style="width: 24px; height: 24px; color: var(--blue-600);"></i>
+            <h2 style="font-size: 16px; margin: 0;">AI 正在流式解析并提取试卷...</h2>
+          </div>
+          <p style="color: var(--text-3); font-size: 13px; margin: 8px 0 12px;">正在为您自动加载已提取的题目，请稍候</p>
+          <div class="loading-bar" style="max-width: 300px; margin: 0 auto;">
+            <div class="loading-bar-fill"></div>
+          </div>
+        </div>
+
         {% set missing = namespace(count=0) %}
         {% for q in questions %}
           {% if not q.answer or not q.explanation or (q.explanation or '')|length < 10 %}
@@ -50,15 +58,15 @@
           {% endif %}
         {% endfor %}
 
-        <div class="flash-ok" style="justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;">
+        <div id="summary-banner" class="flash-ok" style="justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; {% if not questions %}display: none;{% endif %}">
           <span>
             <i data-lucide="binary" style="width: 14px; height: 14px; vertical-align: middle; color:var(--blue-600); margin-right: 4px;"></i>
-            AI 已提取 <strong>{{ questions|length }}</strong> 道题目
+            AI 已提取 <strong id="question-count">{{ questions|length }}</strong> 道题目
           </span>
           {% if missing.count > 0 %}
-            <span style="color: var(--amber-500); font-weight: 700;">
+            <span id="missing-alert" style="color: var(--amber-500); font-weight: 700;">
               <i data-lucide="triangle-alert" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i>
-              {{ missing.count }} 道题缺少答案或解析，请重点检查
+              <span id="missing-count">{{ missing.count }}</span> 道题缺少答案或解析，请重点检查
             </span>
           {% endif %}
         </div>
@@ -114,7 +122,7 @@
           {% endfor %}
         </div>
 
-        <div class="admin-actions" style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft);">
+        <div id="admin-actions-bar" class="admin-actions" style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line-soft); {% if paper.status in ['pending', 'parsing'] %}display: none;{% endif %}">
           <button id="confirm-btn" onclick="confirmQuestions('{{ paper.id }}')" style="background: linear-gradient(180deg, #21b27a 0%, #0f9f6e 100%);">
             <i data-lucide="check-circle" style="width:16px; height:16px;"></i>确认入库
           </button>
@@ -221,22 +229,154 @@ function deletePaper(paperId) {
     });
 }
 {% if paper.status in ['pending', 'parsing'] %}
+let renderedQuestionNums = new Set();
+// Initialize with any questions rendered by jinja
+document.querySelectorAll('.edit-card input[name="question_num"]').forEach(el => {
+  renderedQuestionNums.add(parseInt(el.value));
+});
+
+function renderNewQuestions(newQuestions) {
+  if (!newQuestions || newQuestions.length === 0) return;
+
+  const editor = document.getElementById('questions-editor');
+  const banner = document.getElementById('summary-banner');
+  let addedAny = false;
+  let missingCount = parseInt(document.getElementById('missing-count')?.textContent || '0');
+
+  newQuestions.forEach((q, i) => {
+    let qNum = q.question_num || (i + 1);
+    if (renderedQuestionNums.has(qNum)) return;
+    
+    renderedQuestionNums.add(qNum);
+    addedAny = true;
+
+    let isMissingAnswer = !q.answer;
+    let isMissingExpl = !q.explanation || q.explanation.length < 10;
+    
+    if (isMissingAnswer || isMissingExpl) {
+      missingCount++;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'edit-card';
+    card.setAttribute('data-index', i);
+    card.style.animation = 'slideIn 0.5s ease-out';
+    
+    let answerAlert = isMissingAnswer ? `<span style="color:var(--red-500); font-size:12px; display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-weight: 700;"><span class="pulse-dot"></span>缺答案</span>` : '';
+    let explAlert = isMissingExpl ? `<span style="color:var(--amber-500); font-size:12px; display:inline-flex; align-items:center; gap:6px; margin-left:12px; font-weight: 700;"><span class="pulse-dot warning"></span>缺解析</span>` : '';
+
+    const optionsJson = JSON.stringify(q.options || []).replace(/"/g, '&quot;');
+    const imageRefsJson = JSON.stringify(q.image_refs || []).replace(/"/g, '&quot;');
+    const answerVal = String(q.answer || '').replace(/"/g, '&quot;');
+
+    card.innerHTML = `
+      <h3>第 ${qNum} 题 · ${q.q_type || '未知'} ${answerAlert} ${explAlert}</h3>
+      <div style="display: grid; grid-template-columns: 180px 1fr; gap: 16px; margin-bottom: 12px;">
+        <div><label>题型</label><input type="text" name="q_type" value="${q.q_type || ''}"></div>
+        <div><label>知识点（空格分隔）</label><input type="text" name="topics" value="${q.topics || ''}" placeholder="如 氧化还原反应 离子浓度比较"></div>
+      </div>
+      <label>题干文本</label>
+      <textarea name="stem" rows="4">${q.stem || ''}</textarea>
+      <label>选项配置（JSON 数组格式，非选择题留空）</label>
+      <textarea name="options" rows="2" style="font-size: 12px;">${optionsJson}</textarea>
+      <div style="display: grid; grid-template-columns: 160px 1fr; gap: 16px; margin-top: 12px;">
+        <div><label>参考答案${isMissingAnswer ? '<span style="color:var(--red-500);">（必填）</span>' : ''}</label><input type="text" name="answer" value="${answerVal}"></div>
+        <div><label>解题分析与详细解析${isMissingExpl ? '<span style="color:var(--amber-500);">（建议补充）</span>' : ''}</label><textarea name="explanation" rows="3">${q.explanation || ''}</textarea></div>
+      </div>
+      <input type="hidden" name="question_num" value="${qNum}">
+      <input type="hidden" name="image_refs" value="${imageRefsJson}">
+    `;
+    
+    // Insert in sorted order
+    let inserted = false;
+    let existingCards = editor.querySelectorAll('.edit-card');
+    for (let c of existingCards) {
+      let existingNum = parseInt(c.querySelector('input[name="question_num"]').value);
+      if (qNum < existingNum) {
+        editor.insertBefore(card, c);
+        inserted = true;
+        break;
+      }
+    }
+    if (!inserted) {
+      editor.appendChild(card);
+    }
+  });
+
+  if (addedAny) {
+    banner.style.display = 'flex';
+    document.getElementById('question-count').textContent = renderedQuestionNums.size;
+    
+    if (missingCount > 0) {
+      let alertEl = document.getElementById('missing-alert');
+      if (!alertEl) {
+        alertEl = document.createElement('span');
+        alertEl.id = 'missing-alert';
+        alertEl.style = 'color: var(--amber-500); font-weight: 700;';
+        alertEl.innerHTML = `<i data-lucide="triangle-alert" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px;"></i><span id="missing-count">${missingCount}</span> 道题缺少答案或解析，请重点检查`;
+        banner.appendChild(alertEl);
+        if (window.lucide) window.lucide.createIcons();
+      } else {
+        document.getElementById('missing-count').textContent = missingCount;
+      }
+    }
+  }
+}
+
 function pollStatus() {
   fetch('/admin/paper/{{ paper.id }}/status')
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.ok) {
+        if (d.parsed_count > renderedQuestionNums.size && d.questions) {
+          renderNewQuestions(d.questions);
+        }
+        
         if (d.status === 'parsed' || d.status === 'failed') {
-          location.reload();
+          // Hide parsing loader
+          const loader = document.getElementById('parsing-loading-state');
+          if (loader) loader.style.display = 'none';
+          // Show action buttons
+          const actions = document.getElementById('admin-actions-bar');
+          if (actions) actions.style.display = 'flex';
+          
+          // Render images dynamically if they exist and aren't rendered yet
+          if (d.status === 'parsed' && d.images && d.images.length > 0) {
+            let existingImages = document.querySelector('.reference-images');
+            if (!existingImages) {
+              const editorContainer = document.getElementById('questions-editor');
+              const imageGallery = document.createElement('div');
+              imageGallery.className = 'reference-images';
+              imageGallery.style = 'margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--line-soft);';
+              let imgsHtml = '';
+              d.images.forEach((imgSrc, idx) => {
+                imgsHtml += `
+                  <div style="position: relative; border: 1px solid var(--line-soft); border-radius: 8px; overflow: hidden;">
+                    <span style="position: absolute; top: 0; left: 0; background: rgba(0,0,0,0.6); color: #fff; padding: 2px 6px; font-size: 12px; border-bottom-right-radius: 4px;">图 ${idx + 1}</span>
+                    <img src="${imgSrc}" alt="Reference Image ${idx + 1}" style="max-height: 200px; max-width: 300px; display: block; object-fit: contain;">
+                  </div>
+                `;
+              });
+              imageGallery.innerHTML = `
+                <h3 style="margin-bottom: 16px; font-size: 16px;">附带参考图片（${d.image_source || '未知'}）</h3>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">${imgsHtml}</div>
+              `;
+              editorContainer.parentNode.insertBefore(imageGallery, editorContainer.nextSibling);
+            }
+          }
+          
+          if (d.status === 'failed') {
+            alert('部分或全部解析失败，请检查报错或重新解析');
+          }
         } else {
-          setTimeout(pollStatus, 2000);
+          setTimeout(pollStatus, 1500);
         }
       } else {
-        setTimeout(pollStatus, 4000);
+        setTimeout(pollStatus, 3000);
       }
     })
     .catch(function() {
-      setTimeout(pollStatus, 4000);
+      setTimeout(pollStatus, 3000);
     });
 }
 pollStatus();

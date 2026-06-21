@@ -49,7 +49,7 @@ MIMO_API_URL = os.environ.get(
     'MIMO_API_URL',
     'https://ark.cn-beijing.volces.com/api/coding/v3/chat/completions'
 )
-MIMO_MODEL = os.environ.get('MIMO_MODEL', 'doubao-seed-2.0-lite')
+MIMO_MODEL = os.environ.get('MIMO_MODEL', 'deepseek-v4-flash')
 
 # Backward-compatible names used by older code paths.
 DEEPSEEK_API_KEY = MIMO_API_KEY
